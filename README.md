@@ -79,3 +79,11 @@ CaseOh90000_DISABLE_CASEOH_MODE.bat        Disable the Easter Egg in the branch.
 ## Notes
 
 SIM9000 is a discovery tool, not final proof of real track speed. Very fast SIM results can still behave differently in actual races, so validate your favorite genomes in the normal game. The old test track at 20 furlongs is a good place to compare results, but the normal track works too.
+
+## Disclaimer
+
+CaseOh90000 is an unofficial fan-made mod tool for local/offline experimentation with Horsey Game.
+
+It does not include Horsey Game, Horsey.exe, game assets, or save files.
+
+Use at your own risk and back up your save before using mods.
