@@ -6,6 +6,8 @@ It copies your installed game into a separate mod branch, applies the CaseOh9000
 
 Use the temporary modded branch to create horses, copy any genome you like from the CRISPR/manual gene view, then recreate or paste that genome in your normal unmodded game. You can put the disk from the computer output into the CRISPR lab computer, use the copy function, paste the genome into Notepad to save it, or paste it into your normal Horsey save's CRISPR lab computer to use it immediately.
 
+Heres a youtube preview showing how it works: https://www.youtube.com/watch?v=Rc4P1nUHum4&t=4s
+
 ## What it changes in the temporary branch game version
 
 - Removes SIM9000's 5.0-second acceptance barrier, allowing it to go as low as 0.0.
