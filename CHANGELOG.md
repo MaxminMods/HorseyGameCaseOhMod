@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.0 - Friendlier Direct DNA and repo cleanup
+## HorseyGameCaseOhMod v2 - Friendlier Direct DNA and repo cleanup
 
 - Reworded the README around the normal player flow: start setup, run from latest save, use Direct DNA, then copy/save DNA.
 - Moved Codex-only notes into `docs/codex/`.

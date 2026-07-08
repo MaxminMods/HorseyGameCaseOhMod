@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "v2.0",
+    [string]$Version = "v2",
     [string]$OutZip = ""
 )
 $ErrorActionPreference = "Stop"
@@ -8,7 +8,7 @@ $temp = Join-Path $env:TEMP "CaseOh90000_release_build"
 if (Test-Path $temp) { Remove-Item $temp -Recurse -Force }
 New-Item -ItemType Directory -Path $temp | Out-Null
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = "CaseOh90000_$Version.zip"
+    $OutZip = "HorseyGameCaseOhMod_$Version.zip"
 }
 
 $excludeDirs = @(".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env", "tests", "build", "dist", "Horsey Game", "save", "data", "sound")

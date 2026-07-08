@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CaseOh90000 v2.0 panel with community racing archetypes, exploding finisher preset, Direct DNA, and a hidden Easter egg.
+HorseyGameCaseOhMod v2 panel with community racing archetypes, exploding finisher preset, Direct DNA, and a hidden Easter egg.
 
 No third-party packages. It can patch a branch on disk and, on Windows, patch the
 currently running Horsey.exe process. The panel is not always-on-top by default and can dock beside Horsey.
@@ -1454,7 +1454,7 @@ class OverlayApp(tk.Tk):
             strand = str(self.dna_strand_var.get())
             s["dna_preset_strands"] = strand if strand in {"both", "top", "bottom"} else "both"
         s["dna_output_locks"] = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
-        # Advanced float controls are intentionally hidden in v2.0; keep those values pinned to scanned originals.
+        # Advanced float controls are intentionally hidden in HorseyGameCaseOhMod v2; keep those values pinned to scanned originals.
         for key in ADVANCED_FLOAT_KEYS:
             if key in self.profile.get("patches", {}):
                 s[key] = float(self.profile["patches"][key]["original"])
