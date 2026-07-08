@@ -12,6 +12,8 @@ Most players only need this file first:
 .\00_START_HERE_CaseOh90000.bat
 ```
 
+In the release zip, the top level is intentionally simple: this start file and this README are the only two files you need to look at first. The rest of the app lives inside the `HorseyGameCaseOhMod` folder.
+
 The setup wizard asks for:
 
 1. your normal Horsey Game folder, the one with `Horsey.exe`;
@@ -23,7 +25,7 @@ The setup wizard asks for:
 After setup, use this when you want to rebuild the branch from your newest normal save, launch Horsey, and open the CaseOh90000 panel:
 
 ```powershell
-.\CaseOh90000_RUN_FROM_LATEST_SAVE.bat
+.\HorseyGameCaseOhMod\CaseOh90000_RUN_FROM_LATEST_SAVE.bat
 ```
 
 ## What The Panel Is For
@@ -52,6 +54,11 @@ The panel remembers your last selected Direct DNA preset, strand choice, DNA tex
 ## Useful Launchers
 
 ```text
+Release zip root:
+00_START_HERE_CaseOh90000.bat              First-time setup, branch build, launch.
+README.md                                  Player instructions.
+
+HorseyGameCaseOhMod folder:
 00_START_HERE_CaseOh90000.bat              First-time setup, branch build, launch.
 CaseOh90000_RUN_FROM_LATEST_SAVE.bat       Rebuild from latest save, launch game, open panel.
 CaseOh90000_OPEN_PANEL.bat                 Open only the panel.
@@ -74,7 +81,7 @@ docs/releases/            Release notes.
 docs/codex/               Codex handoff notes and task prompts.
 ```
 
-The root folder keeps the files a player is most likely to double-click. Developer-only notes live under `docs/`.
+Release zips keep the first view clean for newcomers. Developer-only notes live under `HorseyGameCaseOhMod/docs/`.
 
 ## Safety
 

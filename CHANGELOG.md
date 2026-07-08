@@ -10,6 +10,7 @@
 - Added drag-to-reorder tabs, with the order saved between panel launches.
 - Split dense SIM slider sections into columns to reduce scrolling.
 - First-run setup now defaults to no desktop shortcut when pressing Enter.
+- Release zips now open to only `00_START_HERE_CaseOh90000.bat` and `README.md`, with app files inside `HorseyGameCaseOhMod/`.
 - Renamed the injection-style wording to **DNA locks**.
 - Kept launchers at the repo root so double-click workflows stay obvious.
 - Panel choices are now saved when the window closes, including presets that were selected but not yet patched.
