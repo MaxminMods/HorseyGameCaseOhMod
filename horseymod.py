@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-CaseOh90000 v1.6.1 Mod Branch Tool
+CaseOh90000 v2.0 Mod Branch Tool
 
 Creates and patches a COPY of Horsey Game. It never redistributes game files and
 keeps Horsey.exe.original in the mod branch for restore.
 
-v1.6.1 philosophy:
+v2.0 philosophy:
 - Keep the proven effective behavior by default: remove the 5.0s barrier and improve
   displayed precision only.
 - Expose SIM9000 search/optimizer knobs, but leave them at stock unless the user
@@ -336,7 +336,7 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
         )
 
     return {
-        "tool_version": "CaseOh90000-1.6.1",
+        "tool_version": "CaseOh90000-2.0",
         "exe": str(exe),
         "image_base": image_base,
         "sections": [s.__dict__ for s in sections],
@@ -700,7 +700,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def build_argparser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="CaseOh90000 v1.6.1 local mod branch tool")
+    ap = argparse.ArgumentParser(description="CaseOh90000 v2.0 local mod branch tool")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scan", help="scan an executable and print/write patch points")

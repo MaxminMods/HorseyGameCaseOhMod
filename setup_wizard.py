@@ -229,7 +229,7 @@ Write-Output $link
         return False
 
 def cmd_setup(args: argparse.Namespace) -> int:
-    print("CaseOh90000 v1.6.1 - setup wizard")
+    print("CaseOh90000 v2.0 - setup wizard")
     print("This does not patch your normal Steam install. It creates a separate mod branch.\n")
 
     existing = load_config(required=False)
@@ -395,7 +395,7 @@ def cmd_slow_filter(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="CaseOh90000 v1.6.1 setup/config wizard")
+    p = argparse.ArgumentParser(description="CaseOh90000 v2.0 setup/config wizard")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("setup", help="choose game and mod branch folders")
