@@ -9,6 +9,7 @@
 - Moved the main tabs directly under the header and moved privacy/hotkey controls into a Settings tab.
 - Added drag-to-reorder tabs, with the order saved between panel launches.
 - Split dense SIM slider sections into columns to reduce scrolling.
+- First-run setup now defaults to no desktop shortcut when pressing Enter.
 - Renamed the injection-style wording to **DNA locks**.
 - Kept launchers at the repo root so double-click workflows stay obvious.
 - Panel choices are now saved when the window closes, including presets that were selected but not yet patched.

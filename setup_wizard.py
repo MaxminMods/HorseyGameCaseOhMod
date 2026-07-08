@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-run setup and safe launcher for CaseOh90000 v1.5.
+"""First-run setup and safe launcher for HorseyGameCaseOhMod v2.
 
 The wizard stores user-selected paths in CaseOh90000_paths.json so the BAT files
 and the CaseOh90000 panel do not need hardcoded local paths.
@@ -265,12 +265,12 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"Mod branch folder:\n  {branch.resolve()}\n")
 
     if args.make_shortcut is None:
-        answer = input("Create a desktop shortcut that refreshes from the latest normal save and starts the mod? [Y/n]\n> ").strip().lower()
-        make_shortcut = answer not in {"n", "no"}
+        answer = input("Create a desktop shortcut that refreshes from the latest normal save and starts the mod? [y/N]\n> ").strip().lower()
+        make_shortcut = answer in {"y", "yes"}
     else:
         make_shortcut = args.make_shortcut
     if args.open_panel is None:
-        answer = input("Open the CaseOh90000 panel automatically when the mod starts? [Y/n]\n> ").strip().lower()
+        answer = input("Open the panel automatically when the mod starts? [Y/n]\n> ").strip().lower()
         open_panel = answer not in {"n", "no"}
     else:
         open_panel = args.open_panel
