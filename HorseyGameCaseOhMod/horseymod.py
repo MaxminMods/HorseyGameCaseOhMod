@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sim_gene_profiles import apply_gene_stack, restore_gene_xml, default_gene_lab_settings, SPECIES_PROFILES, RACING_PRESETS, force_caseoh_override_settings
 from exploding_seed import apply_exploding_sim_overrides, is_exploding_requested, write_exploding_seed_files
+from caseoh_art import apply_caseoh_art, restore_caseoh_art
 
 STEAM_APPID = "3602570"
 DEFAULT_SOURCE = r"C:\Program Files (x86)\Steam\steamapps\common\Horsey Game"
@@ -46,7 +47,10 @@ SIG_INIT_SEARCH_BUDGETS = "C7 86 A8 06 00 00 ?? ?? ?? ?? C7 86 AC 06 00 00 ?? ??
 SIG_SIM_WORK_PER_UI_UPDATE = "8B 45 67 FF C0 89 45 67 3D ?? ?? ?? ?? 0F 8C C3 FE FF FF"
 SIG_ELITE_PARENT_PERCENT = "44 8B 87 AC 06 00 00 41 6B C8 ?? B8 1F 85 EB 51"
 SIG_MIN_GENERATION_FOR_DISK = "44 8B 87 88 02 00 00 41 83 F8 ?? 0F 8C"
+SIG_RACE_DISPLAY_LIMIT = "8B 87 AC 06 00 00 99 83 E2 03 44 8D 0C 02 41 C1 F9 02"
 SIG_GENERATION_DISPLAY_LIMIT = "44 8B 87 88 02 00 00 41 FF C0 44 8B 8F A8 06 00 00 48 8D 15 ?? ?? ?? ?? 48 8D 4D ?? E8"
+SIG_RACE_DISPLAY_CURRENT = "44 8B 87 78 02 00 00 41 FF C0 48 8D 15"
+SIG_GENERATION_DISPLAY_CURRENT = "44 8B 87 88 02 00 00 41 FF C0 44 8B 8F A8 06 00 00 48 8D 15"
 
 FMT_ORIGINAL = b"T:%.1f\x00"
 FMT_BY_PRECISION = {1: b"T:%.1f\x00", 2: b"T:%.2f\x00", 3: b"T:%.3f\x00"}
@@ -66,6 +70,7 @@ ADVANCED_FLOAT_KEYS = [
     "result_score_scale",
     "invalid_score_sentinel",
 ]
+DISPLAY_NUMERATOR_KEYS = ["generation_display_current"]
 
 
 @dataclass
@@ -184,7 +189,10 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
     work_per_update = maybe_one("SIM9000 work batches per UI update", find_pattern(data, SIG_SIM_WORK_PER_UI_UPDATE), warnings)
     elite_parent = maybe_one("SIM9000 elite parent percentage", find_pattern(data, SIG_ELITE_PARENT_PERCENT), warnings)
     min_gen_disk = maybe_one("SIM9000 minimum generation before disk/result", find_pattern(data, SIG_MIN_GENERATION_FOR_DISK), warnings)
+    race_display = maybe_one("SIM9000 visible race-total display", find_pattern(data, SIG_RACE_DISPLAY_LIMIT), warnings)
     generation_display = maybe_one("SIM9000 visible generation-total display", find_pattern(data, SIG_GENERATION_DISPLAY_LIMIT), warnings)
+    race_current = maybe_one("SIM9000 visible race-current display", find_pattern(data, SIG_RACE_DISPLAY_CURRENT), warnings)
+    generation_current = maybe_one("SIM9000 visible generation-current display", find_pattern(data, SIG_GENERATION_DISPLAY_CURRENT), warnings)
 
     fmt_hits = [data.find(v) for v in FMT_BY_PRECISION.values()]
     fmt_hits = [x for x in fmt_hits if x >= 0]
@@ -307,6 +315,33 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
             sections,
             "bytes7",
             data[generation_display + 10:generation_display + 17].hex(" "),
+        )
+    if race_display is not None:
+        patches["race_display_limit"] = make_patch_entry(
+            "race_display_limit",
+            "Display-only total shown in the SIM9000 R:x/total readout. CaseOh90000 can mirror the selected race-slot total here.",
+            race_display,
+            sections,
+            "bytes18",
+            data[race_display:race_display + 18].hex(" "),
+        )
+    if race_current is not None:
+        patches["race_display_current"] = make_patch_entry(
+            "race_display_current",
+            "Display-only current value shown in the SIM9000 R:current/total readout. CaseOh90000 restores this live-counter read so it follows real SIM progress.",
+            race_current,
+            sections,
+            "bytes10",
+            data[race_current:race_current + 10].hex(" "),
+        )
+    if generation_current is not None:
+        patches["generation_display_current"] = make_patch_entry(
+            "generation_display_current",
+            "Display-only current value shown in the SIM9000 G:current/total readout. CaseOh90000 restores this live-counter read so it follows real SIM progress.",
+            generation_current,
+            sections,
+            "bytes10",
+            data[generation_current:generation_current + 10].hex(" "),
         )
 
     if finish_metric is not None:
@@ -459,7 +494,19 @@ def read_branch_profile(branch: Path) -> Dict[str, Any]:
     profile_path = branch / "sim9000_mod_profile.json"
     exe = branch / "Horsey.exe"
     if profile_path.exists():
-        return json.loads(profile_path.read_text(encoding="utf-8"))
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        required = {"generation_display_limit", "race_display_limit", "generation_display_current", "race_display_current"}
+        if not required.issubset(set(profile.get("patches", {}))):
+            scan_target = branch / "Horsey.exe.original"
+            if not scan_target.exists():
+                scan_target = exe
+            refreshed = scan_exe(scan_target)
+            profile["patches"] = refreshed.get("patches", profile.get("patches", {}))
+            profile["sections"] = refreshed.get("sections", profile.get("sections", []))
+            profile["image_base"] = refreshed.get("image_base", profile.get("image_base"))
+            profile["warnings"] = refreshed.get("warnings", profile.get("warnings", []))
+            write_profile(branch, profile)
+        return profile
     profile = scan_exe(exe)
     write_profile(branch, profile)
     return profile
@@ -535,10 +582,14 @@ def apply_values_to_exe(exe: Path, profile: Dict[str, Any], settings: Dict[str, 
         key = "generation_display_limit"
         if not has(key):
             return
-        if enabled:
-            payload = b"\x41\xb9" + struct.pack("<i", int(value)) + b"\x90"
-        else:
-            payload = bytes.fromhex(str(patches[key]["original"]))
+        write_bytes(key, bytes.fromhex(str(patches[key]["original"])))
+
+    def write_race_display(value: int, enabled: bool) -> None:
+        key = "race_display_limit"
+        current_key = "race_display_current"
+        if not has(key) or not has(current_key):
+            return
+        payload = bytes.fromhex(str(patches[key]["original"])) + bytes.fromhex(str(patches[current_key]["original"]))
         write_bytes(key, payload)
 
     # Baseline behavior.
@@ -580,6 +631,10 @@ def apply_values_to_exe(exe: Path, profile: Dict[str, Any], settings: Dict[str, 
     for key in SEARCH_KEYS_U8:
         write_u8(key, int(search_values[key]))
     write_generation_display(int(search_values["initial_generation_limit"]), bool(s.get("enable_search_controls", False)))
+    write_race_display(int(search_values["initial_genepool_size"]) // 4, bool(s.get("enable_search_controls", False)))
+    for key in DISPLAY_NUMERATOR_KEYS:
+        if has(key):
+            write_bytes(key, bytes.fromhex(str(patches[key]["original"])))
 
     # Advanced floats remain stock unless settings explicitly differ; default settings
     # already contain stock/original values.
@@ -612,6 +667,10 @@ def cmd_make_branch(args: argparse.Namespace) -> None:
     if not args.no_patch:
         settings = apply_values_to_exe(exe, profile, settings)
     apply_gene_stack(branch, settings)
+    try:
+        apply_caseoh_art(branch)
+    except Exception as e:
+        print(f"warning: could not apply CaseOh90000 garage art: {e}")
     write_settings(branch, settings)
     print(f"branch={branch}")
     print("created CaseOh90000 mod branch and wrote steam_appid.txt")
@@ -683,6 +742,11 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
     settings = apply_values_to_exe(exe, profile, settings)
     caseoh_result = apply_gene_stack(branch, settings)
+    try:
+        art_result = apply_caseoh_art(branch)
+        print("CaseOh90000 garage art:", json.dumps(art_result))
+    except Exception as e:
+        print(f"warning: could not apply CaseOh90000 garage art: {e}")
     if is_exploding_requested(settings):
         seed = write_exploding_seed_files(branch)
         print("Exploding finisher seed DNA written:", seed.get("dna_file"))
@@ -701,6 +765,7 @@ def cmd_restore(args: argparse.Namespace) -> None:
     shutil.copy2(backup, exe)
     try:
         restore_gene_xml(branch)
+        restore_caseoh_art(branch)
         profile = read_branch_profile(branch)
         settings = load_settings(branch, profile)
         settings["caseoh_mode"] = False

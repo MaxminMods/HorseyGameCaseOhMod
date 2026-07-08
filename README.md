@@ -38,7 +38,7 @@ After setup, use this when you want to rebuild the branch from your newest norma
 
 **Parameters** changes the copied branch so SIM9000 is easier to use. It removes the 5.0-second acceptance barrier, shows `T` with 3 decimals, and keeps normal search behavior by default.
 
-**Intensity** contains the optional SIM9000 search-depth controls. When experimental search controls are enabled, the visible `G:x/total` display mirrors the selected generation total.
+**Intensity** contains the optional SIM9000 search-depth controls. When experimental search controls are enabled, **Apply to running game** updates the active SIM9000 generation and race-slot totals when the panel can safely find the live SIM state, so `G:x/total` and `R:x/total` reflect the real running values without restarting Horsey.
 
 **Gene Lab** is advanced. It edits the copied branch's `data/genes.xml` expression values, which can be useful for strange experiments but is less predictable than direct DNA editing.
 

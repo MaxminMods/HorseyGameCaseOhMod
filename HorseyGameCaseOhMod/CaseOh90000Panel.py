@@ -29,6 +29,7 @@ from exploding_seed import (
     EXPLODING_FINISHER_SEED_DNA, apply_exploding_sim_overrides, is_exploding_requested,
     write_exploding_seed_files, copy_seed_to_clipboard,
 )
+from caseoh_art import apply_caseoh_art
 from dna_designer import (
     BASES as DNA_BASES, DIRECT_PRESETS, DIRECT_PRESET_NAMES, HELIX_LENGTHS as DNA_HELIX_LENGTHS,
     HELIX_GENE_NAMES as DNA_HELIX_GENE_NAMES, apply_direct_preset, apply_dna_locks, blank_genome,
@@ -66,15 +67,29 @@ TH32CS_SNAPMODULE32 = 0x00000010
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 PAGE_EXECUTE_READWRITE = 0x40
 PAGE_READWRITE = 0x04
+MEM_COMMIT = 0x1000
+MEM_PRIVATE = 0x20000
+PAGE_GUARD = 0x100
 SW_RESTORE = 9
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
+READABLE_PAGE_PROTECTIONS = {0x02, 0x04, 0x08, 0x20, 0x40, 0x80}
+
+SIM_RACE_CURRENT_OFFSET = 0x278
+SIM_STATE_HINT_OFFSET = 0x27C
+SIM_GENERATION_CURRENT_OFFSET = 0x288
+SIM_GENERATION_LIMIT_OFFSET = 0x6A8
+SIM_GENEPOOL_SIZE_OFFSET = 0x6AC
+SIM_STATE_SCAN_SIZE = SIM_GENEPOOL_SIZE_OFFSET + 4
+LAST_SIM_STATE_ADDR: int | None = None
 
 CORE_KEYS = ["min_finish_frames", "no_progress_frames", "max_sim_frames", "valid_result_max"]
 SEARCH_I32 = ["initial_generation_limit", "initial_genepool_size", "sim_work_per_ui_update"]
 SEARCH_U8 = ["elite_parent_percent", "min_generation_for_disk"]
 SEARCH_KEYS = SEARCH_I32 + SEARCH_U8
 ADVANCED_FLOAT_KEYS = ["finish_metric_threshold", "display_time_divisor", "result_score_scale", "invalid_score_sentinel"]
+DISPLAY_NUMERATOR_KEYS = ["generation_display_current"]
+WINDOW_CHROME_HEIGHT_GUESS = 40
 OLD_TAB_ORDER = ["dna", "main", "gene_lab", "search", "settings"]
 TAB_ORDER = ["main", "search", "gene_lab", "dna", "settings"]
 TAB_META = {
@@ -179,6 +194,18 @@ class MODULEENTRY32W(ctypes.Structure):
     ]
 
 
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", wintypes.DWORD),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", wintypes.DWORD),
+        ("Protect", wintypes.DWORD),
+        ("Type", wintypes.DWORD),
+    ]
+
+
 if os.name == "nt":
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     CreateToolhelp32Snapshot = kernel32.CreateToolhelp32Snapshot
@@ -199,9 +226,15 @@ if os.name == "nt":
     OpenProcess = kernel32.OpenProcess
     OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     OpenProcess.restype = wintypes.HANDLE
+    ReadProcessMemory = kernel32.ReadProcessMemory
+    ReadProcessMemory.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+    ReadProcessMemory.restype = wintypes.BOOL
     WriteProcessMemory = kernel32.WriteProcessMemory
     WriteProcessMemory.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.LPCVOID, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
     WriteProcessMemory.restype = wintypes.BOOL
+    VirtualQueryEx = kernel32.VirtualQueryEx
+    VirtualQueryEx.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, ctypes.POINTER(MEMORY_BASIC_INFORMATION), ctypes.c_size_t]
+    VirtualQueryEx.restype = ctypes.c_size_t
     VirtualProtectEx = kernel32.VirtualProtectEx
     VirtualProtectEx.argtypes = [wintypes.HANDLE, wintypes.LPVOID, ctypes.c_size_t, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
     VirtualProtectEx.restype = wintypes.BOOL
@@ -284,12 +317,199 @@ def write_process(pid: int, addr: int, payload: bytes) -> None:
         CloseHandle(h)
 
 
+def read_process_memory(h: wintypes.HANDLE, addr: int, size: int) -> bytes | None:
+    buf = (ctypes.c_ubyte * size)()
+    n = ctypes.c_size_t(0)
+    if not ReadProcessMemory(h, ctypes.c_void_p(addr), buf, size, ctypes.byref(n)):
+        return None
+    return bytes(buf[:n.value])
+
+
+def write_process_i32(h: wintypes.HANDLE, addr: int, value: int) -> None:
+    old = wintypes.DWORD(0)
+    if not VirtualProtectEx(h, ctypes.c_void_p(addr), 4, PAGE_READWRITE, ctypes.byref(old)):
+        if not VirtualProtectEx(h, ctypes.c_void_p(addr), 4, PAGE_EXECUTE_READWRITE, ctypes.byref(old)):
+            raise RuntimeError(f"VirtualProtectEx({addr:#x}) failed: {last_error()}")
+    payload = struct.pack("<i", int(value))
+    buf = ctypes.create_string_buffer(payload)
+    n = ctypes.c_size_t(0)
+    if not WriteProcessMemory(h, ctypes.c_void_p(addr), buf, 4, ctypes.byref(n)):
+        raise RuntimeError(f"WriteProcessMemory({addr:#x}) failed: {last_error()}")
+    if n.value != 4:
+        raise RuntimeError(f"short write at {addr:#x}: {n.value}/4")
+    tmp = wintypes.DWORD(0)
+    VirtualProtectEx(h, ctypes.c_void_p(addr), 4, old.value, ctypes.byref(tmp))
+
+
+def _read_sim_state_values(h: wintypes.HANDLE, obj: int) -> Dict[str, int] | None:
+    data = read_process_memory(h, obj, SIM_STATE_SCAN_SIZE)
+    if data is None or len(data) < SIM_STATE_SCAN_SIZE:
+        return None
+    return {
+        "race_current": struct.unpack_from("<i", data, SIM_RACE_CURRENT_OFFSET)[0],
+        "state_hint": struct.unpack_from("<i", data, SIM_STATE_HINT_OFFSET)[0],
+        "generation_current": struct.unpack_from("<i", data, SIM_GENERATION_CURRENT_OFFSET)[0],
+        "generation_limit": struct.unpack_from("<i", data, SIM_GENERATION_LIMIT_OFFSET)[0],
+        "genepool_size": struct.unpack_from("<i", data, SIM_GENEPOOL_SIZE_OFFSET)[0],
+    }
+
+
+def _plausible_sim_state(values: Dict[str, int], target_generation_limit: int, target_genepool_size: int) -> bool:
+    generation_limit = int(values["generation_limit"])
+    genepool_size = int(values["genepool_size"])
+    if not (1 <= generation_limit <= 4096):
+        return False
+    if genepool_size < 4 or genepool_size > 4096 or genepool_size % 4 != 0:
+        return False
+    race_slots = max(1, genepool_size // 4, target_genepool_size // 4)
+    generation_cap = max(generation_limit, target_generation_limit, 16)
+    return (
+        -2 <= int(values["state_hint"]) <= 20
+        and 0 <= int(values["race_current"]) <= race_slots + 8
+        and -1 <= int(values["generation_current"]) <= generation_cap + 8
+    )
+
+
+def _scan_sim_state_candidates(
+    h: wintypes.HANDLE,
+    target_generation_limit: int,
+    target_genepool_size: int,
+    original_generation_limit: int,
+    original_genepool_size: int,
+    extra_pairs: List[Tuple[int, int]] | None = None,
+) -> List[Tuple[int, Dict[str, int]]]:
+    candidates: Dict[int, Dict[str, int]] = {}
+    pair_needles = {(int(original_generation_limit), int(original_genepool_size))}
+    for gen_limit, pool_size in extra_pairs or []:
+        pair_needles.add((int(gen_limit), int(pool_size)))
+    if not extra_pairs:
+        pair_needles.add((int(target_generation_limit), int(target_genepool_size)))
+
+    def add_candidate(obj: int) -> None:
+        if obj in candidates or obj % 16 != 0:
+            return
+        values = _read_sim_state_values(h, obj)
+        if values and _plausible_sim_state(values, target_generation_limit, target_genepool_size):
+            candidates[obj] = values
+
+    mbi = MEMORY_BASIC_INFORMATION()
+    addr = 0
+    while VirtualQueryEx(h, ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi)):
+        region_base = int(mbi.BaseAddress or 0)
+        region_size = int(mbi.RegionSize or 0)
+        protect = int(mbi.Protect) & 0xFF
+        if (
+            int(mbi.State) == MEM_COMMIT
+            and int(mbi.Type) == MEM_PRIVATE
+            and not (int(mbi.Protect) & PAGE_GUARD)
+            and protect in READABLE_PAGE_PROTECTIONS
+            and region_size > 0
+        ):
+            pos = region_base
+            end = region_base + region_size
+            while pos < end:
+                chunk_size = min(4 * 1024 * 1024, end - pos)
+                data = read_process_memory(h, pos, chunk_size)
+                if data:
+                    for gen_limit, pool_size in pair_needles:
+                        needle = struct.pack("<ii", gen_limit, pool_size)
+                        start = 0
+                        while True:
+                            hit = data.find(needle, start)
+                            if hit < 0:
+                                break
+                            obj = pos + hit - SIM_GENERATION_LIMIT_OFFSET
+                            if obj >= region_base:
+                                add_candidate(obj)
+                            start = hit + 1
+                pos += chunk_size
+        next_addr = region_base + region_size
+        if next_addr <= addr:
+            break
+        addr = next_addr
+    return sorted(candidates.items())
+
+
+def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, Any], previous_settings: Dict[str, Any] | None = None) -> str:
+    global LAST_SIM_STATE_ADDR
+    s = normalize_settings(profile, settings)
+    if s.get("enable_search_controls"):
+        target_generation_limit = int(s["initial_generation_limit"])
+        target_genepool_size = int(s["initial_genepool_size"])
+    else:
+        target_generation_limit = int(original(profile, "initial_generation_limit", 16))
+        target_genepool_size = int(original(profile, "initial_genepool_size", 40))
+    original_generation_limit = int(original(profile, "initial_generation_limit", 16))
+    original_genepool_size = int(original(profile, "initial_genepool_size", 40))
+    extra_pairs: List[Tuple[int, int]] = []
+    if previous_settings:
+        previous = normalize_settings(profile, previous_settings)
+        if previous.get("enable_search_controls"):
+            extra_pairs.append((int(previous["initial_generation_limit"]), int(previous["initial_genepool_size"])))
+
+    h = OpenProcess(PROCESS_ALL_PATCH, False, pid)
+    if not h:
+        raise RuntimeError(f"OpenProcess({pid}) failed while updating live SIM state: {last_error()}")
+    try:
+        candidates: List[Tuple[int, Dict[str, int]]] = []
+        if LAST_SIM_STATE_ADDR is not None:
+            cached_values = _read_sim_state_values(h, LAST_SIM_STATE_ADDR)
+            if cached_values and _plausible_sim_state(cached_values, target_generation_limit, target_genepool_size):
+                candidates = [(LAST_SIM_STATE_ADDR, cached_values)]
+        if not candidates:
+            candidates = _scan_sim_state_candidates(
+                h,
+                target_generation_limit,
+                target_genepool_size,
+                original_generation_limit,
+                original_genepool_size,
+                extra_pairs,
+            )
+        if not candidates:
+            return "\nLive SIM state was not found yet. Apply from the world map or before starting SIM9000 if the counters do not change."
+        if len(candidates) > 1:
+            active_candidates = [
+                (obj, values)
+                for obj, values in candidates
+                if int(values["race_current"]) != 0 or int(values["generation_current"]) != 0
+            ]
+            if len(active_candidates) == 1:
+                candidates = active_candidates
+            else:
+                return "\nLive SIM state was ambiguous, so the active SIM limits were not changed."
+        obj, before = candidates[0]
+        write_process_i32(h, obj + SIM_GENERATION_LIMIT_OFFSET, target_generation_limit)
+        write_process_i32(h, obj + SIM_GENEPOOL_SIZE_OFFSET, target_genepool_size)
+        after = _read_sim_state_values(h, obj) or before
+    finally:
+        CloseHandle(h)
+    LAST_SIM_STATE_ADDR = int(obj)
+
+    before_slots = max(1, int(before["genepool_size"]) // 4)
+    after_slots = max(1, int(after["genepool_size"]) // 4)
+    msg = (
+        "\nLive SIM state updated: "
+        f"G total {before['generation_limit']} -> {after['generation_limit']}, "
+        f"R slots {before_slots} -> {after_slots}."
+    )
+    if (
+        int(before["generation_current"]) >= int(before["generation_limit"]) - 1
+        and (
+            int(before["generation_limit"]) != int(after["generation_limit"])
+            or int(before["genepool_size"]) != int(after["genepool_size"])
+        )
+    ):
+        msg += " If that SIM run had already stopped at the old limit, start another SIM9000 run in the same Horsey session; no game restart is needed."
+    return msg
+
+
 def read_profile(branch: Path) -> Dict[str, Any]:
     p = branch / "sim9000_mod_profile.json"
     if not p.exists():
         raise FileNotFoundError(f"Missing {p}. Run 00_START_HERE_CaseOh90000.bat to create or refresh the mod branch first.")
     profile = json.loads(p.read_text(encoding="utf-8"))
-    if "generation_display_limit" not in profile.get("patches", {}):
+    required = {"generation_display_limit", "race_display_limit", "generation_display_current", "race_display_current"}
+    if not required.issubset(set(profile.get("patches", {}))):
         scan_target = branch / "Horsey.exe.original"
         if not scan_target.exists():
             scan_target = branch / "Horsey.exe"
@@ -587,10 +807,15 @@ def patch_payloads(profile: Dict[str, Any], settings: Dict[str, Any]) -> List[Tu
         key = "generation_display_limit"
         if key not in p:
             return
-        if enabled:
-            add_bytes(key, b"\x41\xb9" + struct.pack("<i", int(value)) + b"\x90")
-        else:
-            add_bytes(key, bytes.fromhex(str(p[key]["original"])))
+        add_bytes(key, bytes.fromhex(str(p[key]["original"])))
+
+    def add_race_display(value: int, enabled: bool) -> None:
+        key = "race_display_limit"
+        current_key = "race_display_current"
+        if key not in p or current_key not in p:
+            return
+        payload = bytes.fromhex(str(p[key]["original"])) + bytes.fromhex(str(p[current_key]["original"]))
+        add_bytes(key, payload)
 
     add_i32("min_finish_frames", s["min_finish_frames"])
     add_i32("no_progress_frames", s["no_progress_frames"])
@@ -624,6 +849,10 @@ def patch_payloads(profile: Dict[str, Any], settings: Dict[str, Any]) -> List[Tu
     for key in SEARCH_U8:
         add_u8(key, search_values[key])
     add_generation_display(search_values["initial_generation_limit"], bool(s.get("enable_search_controls")))
+    add_race_display(search_values["initial_genepool_size"] // 4, bool(s.get("enable_search_controls")))
+    for key in DISPLAY_NUMERATOR_KEYS:
+        if key in p:
+            add_bytes(key, bytes.fromhex(str(p[key]["original"])))
     for key in ADVANCED_FLOAT_KEYS:
         if key in s:
             add_f32(key, s[key])
@@ -665,17 +894,25 @@ def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, An
         for key in SEARCH_KEYS:
             s[key] = int(original(profile, key, s.get(key, 0)))
     apply_gene_stack(branch, s)
+    apply_caseoh_art(branch)
     write_settings(branch, s)
     return s
 
-def patch_running_process(profile: Dict[str, Any], settings: Dict[str, Any], preferred_exe: Path | None = None) -> str:
+def patch_running_process(
+    profile: Dict[str, Any],
+    settings: Dict[str, Any],
+    preferred_exe: Path | None = None,
+    previous_settings: Dict[str, Any] | None = None,
+) -> str:
     pid, base, path = find_horsey_process(preferred_exe)
     for key, payload in patch_payloads(profile, settings):
         if key not in profile["patches"]:
             continue
         addr = base + int(profile["patches"][key]["rva"])
         write_process(pid, addr, payload)
-    return f"Patched running Horsey.exe pid={pid}, base={base:#x}\n{path}"
+    msg = f"Patched running Horsey.exe pid={pid}, base={base:#x}\n{path}"
+    msg += patch_live_sim_state(pid, profile, settings, previous_settings)
+    return msg
 
 
 class Scrollable(ttk.Frame):
@@ -796,6 +1033,8 @@ class OverlayApp(tk.Tk):
         status_row.pack(fill="x", pady=(0, 8))
         ttk.Label(status_row, textvariable=self.status, style="Status.TLabel", wraplength=840).pack(anchor="w")
 
+        self._build_action_bar(outer)
+
         self.current_tab_key = ""
         saved_order = self.settings.get("tab_order", TAB_ORDER)
         self.tab_order = [key for key in saved_order if key in TAB_ORDER]
@@ -832,12 +1071,45 @@ class OverlayApp(tk.Tk):
         self._render_tab_strip()
         self._show_tab(self.tab_order[0] if self.tab_order else "main")
 
-        btns = ttk.Frame(outer)
-        btns.pack(fill="x", pady=(10, 0))
-        ttk.Button(btns, text="Apply to running game", command=self.patch_live).pack(side="left", padx=3)
-        ttk.Button(btns, text="Save to branch files", command=self.patch_disk).pack(side="left", padx=3)
-        ttk.Button(btns, text="Load baseline", command=self.preset_baseline).pack(side="left", padx=3)
-        ttk.Button(btns, text="Restore normal search", command=self.preset_stock_search).pack(side="left", padx=3)
+    def _build_action_bar(self, parent: tk.Widget) -> None:
+        bar = tk.Frame(parent, bg="#d4d9df", padx=4, pady=4, highlightthickness=1, highlightbackground="#aeb5bf")
+        bar.pack(fill="x", pady=(0, 8))
+        actions = [
+            ("Apply to running game", self.patch_live, "#16784f", "#f0fff6"),
+            ("Save to branch files", self.patch_disk, "#b76512", "#fff7ec"),
+            ("Load baseline", self.preset_baseline, "#2f72d6", "#f1f6ff"),
+            ("Restore normal search", self.preset_stock_search, "#6f747c", "#f6f7f8"),
+        ]
+        for index, (text, command, color, pale) in enumerate(actions):
+            bar.grid_columnconfigure(index, weight=1, uniform="actions")
+            button = tk.Button(
+                bar,
+                text=text,
+                command=command,
+                font=("Segoe UI", 11, "bold"),
+                fg="#111111",
+                bg=pale,
+                activeforeground="#000000",
+                activebackground="#ffffff",
+                relief="raised",
+                bd=2,
+                highlightthickness=2,
+                highlightbackground=color,
+                highlightcolor=color,
+                padx=8,
+                pady=8,
+                wraplength=160,
+                justify="center",
+                cursor="hand2",
+                takefocus=True,
+            )
+            button.configure(
+                default="active" if index == 0 else "normal",
+                borderwidth=2,
+            )
+            button.grid(row=0, column=index, sticky="ew", padx=4, pady=2)
+            stripe = tk.Frame(bar, bg=color, height=4)
+            stripe.grid(row=1, column=index, sticky="ew", padx=4, pady=(0, 2))
 
     def _masked_branch_text(self) -> str:
         if bool(self.vars.get("streamer_privacy", tk.BooleanVar(value=True)).get()) and not bool(self.vars.get("show_file_paths", tk.BooleanVar(value=False)).get()):
@@ -1186,14 +1458,14 @@ class OverlayApp(tk.Tk):
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
         panel_w = min(780, max(720, int(screen_w * 0.40)))
-        panel_h = max(720, screen_h - 48)
         panel_x = 0
-        panel_y = 0
         overlap = 8
         horsey_x = max(0, panel_w - overlap)
         horsey_y = max(72, min(108, screen_h // 10))
         horsey_w = max(760, screen_w - horsey_x)
         horsey_h = max(620, screen_h - horsey_y - 92)
+        panel_y = horsey_y
+        panel_h = max(620, horsey_h - WINDOW_CHROME_HEIGHT_GUESS)
         return (panel_w, panel_h, panel_x, panel_y), (horsey_x, horsey_y, horsey_w, horsey_h)
 
     def _place_panel(self, panel_rect: Tuple[int, int, int, int]) -> None:
@@ -1201,12 +1473,12 @@ class OverlayApp(tk.Tk):
         self.geometry(f"{panel_w}x{panel_h}+{x}+{y}")
 
     def _dock_panel_to_horsey_rect(self, rect: Tuple[int, int, int, int]) -> None:
-        left, top, right, _bottom = rect
+        left, top, right, bottom = rect
         self.update_idletasks()
         panel_w = max(760, self.winfo_width())
-        panel_h = max(620, self.winfo_height())
         screen_w = self.winfo_screenwidth()
         screen_h = self.winfo_screenheight()
+        panel_h = max(620, min(max(620, bottom - top - WINDOW_CHROME_HEIGHT_GUESS), screen_h - top - 56))
         x = right + 10
         if x + panel_w > screen_w:
             x = max(0, left - panel_w - 10)
@@ -1221,7 +1493,16 @@ class OverlayApp(tk.Tk):
             self.after(1200, self._maybe_follow)
 
     def _add_desc(self, parent: tk.Widget, key: str, wraplength: int = 820) -> None:
-        ttk.Label(parent, text=DESCRIPTIONS.get(key, ""), wraplength=wraplength, foreground="#333333").pack(anchor="w", pady=(2, 2))
+        label = ttk.Label(parent, text=DESCRIPTIONS.get(key, ""), wraplength=wraplength, foreground="#333333")
+        label.pack(anchor="w", fill="x", pady=(2, 2))
+        self._wrap_with_container(label)
+
+    def _wrap_with_container(self, label: ttk.Label, minimum: int = 160) -> None:
+        def rewrap(event: tk.Event, target: ttk.Label = label) -> None:
+            width = max(minimum, int(getattr(event, "width", minimum)) - 8)
+            target.configure(wraplength=width)
+
+        label.bind("<Configure>", rewrap, add="+")
 
     def _add_scale(self, parent: tk.Widget, key: str, label: str, lo: int, hi: int, wraplength: int = 820) -> None:
         var = tk.IntVar(value=int(self.settings.get(key, lo)))
@@ -1732,6 +2013,12 @@ class OverlayApp(tk.Tk):
         self._add_scale(left, "sim_work_per_ui_update", "SIM work batches per UI update", 30, 3000, wraplength=390)
         self._add_scale(right, "elite_parent_percent", "Elite parent / diversity percent", 1, 100, wraplength=390)
         self._add_scale(left, "min_generation_for_disk", "Earliest generation for result disk", 0, 127, wraplength=390)
+        ttk.Label(
+            root,
+            text="Apply updates the running SIM when it can find the active SIM9000 state. R and G counters use the live SIM values, so changing race slots or generations should be visible without restarting Horsey.",
+            wraplength=680,
+            foreground="#333333",
+        ).pack(anchor="w", padx=8, pady=(4, 8))
 
         presets = ttk.LabelFrame(root, text="Experimental presets", padding=8)
         presets.pack(fill="x", padx=4, pady=5)
@@ -1916,7 +2203,7 @@ class OverlayApp(tk.Tk):
         if "sim_work_per_ui_update" in self.vars:
             self.vars["sim_work_per_ui_update"].set(600)
         self._update_labels()
-        self.status.set("Faster UI-only preset loaded. It should mainly affect how fast the sim screen advances, not scoring. Patch before a fresh SIM run.")
+        self.status.set("Faster UI-only preset loaded. It should mainly affect how fast the sim screen advances, not scoring. Use Apply to running game.")
 
     def preset_careful_deeper(self) -> None:
         self.vars["enable_search_controls"].set(True)
@@ -1942,8 +2229,9 @@ class OverlayApp(tk.Tk):
 
     def patch_live(self) -> None:
         try:
+            previous_settings = dict(self.settings)
             self.settings = self._collect()
-            msg = patch_running_process(self.profile, self.settings, self.horsey_exe)
+            msg = patch_running_process(self.profile, self.settings, self.horsey_exe, previous_settings)
             # Match file behavior: when experimental is disabled, store stock search values.
             if not self.settings.get("enable_search_controls"):
                 for key in SEARCH_KEYS:
@@ -1958,6 +2246,11 @@ class OverlayApp(tk.Tk):
                 msg += "\nGene Lab changes were written to genes.xml; restart Horsey for those to load. If the Easter Egg is checked, it overrides other profile/search settings."
             else:
                 msg += "\nGene Lab disabled; branch genes.xml restored to stock unless the Easter Egg is enabled."
+            try:
+                apply_caseoh_art(self.branch)
+                msg += "\nCaseOh90000 garage art is ready; restart Horsey if the garage sign is not visible yet."
+            except Exception as art_error:
+                msg += f"\nGarage art could not be refreshed: {art_error}"
             self.status.set(msg)
         except Exception as e:
             messagebox.showerror("Live patch failed", str(e))

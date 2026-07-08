@@ -10,11 +10,14 @@
 - Reworked the tabs into a colored, bordered top strip with the default order: Parameters, Intensity, Gene Lab, Direct DNA, Settings.
 - Added simple unique tab icons so each panel area is easier to recognize at a glance.
 - Added drag-to-reorder tabs, with the order saved between panel launches.
+- Moved the four main action buttons above the tabs and gave them distinct colors so Apply, Save, Baseline, and Restore are always visible.
 - Split dense SIM slider sections into columns to reduce scrolling.
 - Added an automatic side-by-side window fit so Horsey opens non-fullscreen beside the panel for SIM9000 testing.
 - Panel-only launchers now detach the panel so the command window does not stay open while the panel is running.
 - The Intensity tab now labels gene-pool size as horses/race slots so `R:x/10` style totals are easier to understand.
-- Added a display-only patch so the SIM9000 `G:x/total` readout can mirror the chosen generation total when experimental search controls are enabled.
+- Apply to running game now updates the active SIM9000 state block when it can safely find it, so generation and race-slot changes can take effect without restarting Horsey.
+- The SIM9000 `G:x/total` and `R:x/total` readouts now use the live SIM state after Apply instead of a display-only counter workaround.
+- Added generated branch-only garage art: a taped CaseOh sign inside the garage.
 - First-run setup now defaults to no desktop shortcut when pressing Enter.
 - Download/release zips now open to `00_START_HERE_CaseOh90000.bat`, `01_LAUNCH_PANEL_CaseOh90000.bat`, `README.md`, and the `HorseyGameCaseOhMod/` app folder.
 - Launchers now check for a real Python 3 + Tkinter install instead of only checking that `py.exe` exists.
