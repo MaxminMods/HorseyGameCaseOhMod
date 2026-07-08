@@ -1,51 +1,12 @@
-# CaseOh90000 v1.6.1 — Direct DNA Editor
+# CaseOh90000
 
+CaseOh90000 is a safe-branch mod panel for **Horsey Game**.
 
-## v1.6.1 clean/fast pass
+It copies your game into a separate branch folder, applies the CaseOh90000 SIM9000 changes there, and keeps your normal Steam install and normal save separate while you experiment.
 
-This build keeps the Direct DNA Editor as the recommended workflow. The editor is lazy-loaded so large A/T/C/G controls are only created when you expand a helix, and it includes fast-open buttons for the common racing groups: speed core, wheels, tail, and timing. The old SIM Gene Lab remains available as an advanced branch-wide experiment, but exact horse creation should use the Direct DNA Editor.
+## Start Here
 
-CaseOh90000 is a local safe-branch mod tool for **Horsey Game**. It does not include the game, does not patch your Steam install directly, and does not modify your normal save while you experiment.
-
-It copies your installed game into a separate branch, applies the CaseOh90000 SIM9000 changes there, and lets you copy any useful genome back into your normal unmodded game.
-
-## What is new in v1.6.1
-
-The old SIM Gene Lab presets were too vague: they changed how `genes.xml` expresses traits, which could make wildly different creatures than the preset name implied.
-
-v1.6.1 keeps the old expression-profile tools, but adds a new **Direct DNA Editor** tab that is much more honest and useful:
-
-- paste or load any 40-line Horsey DNA;
-- validate and normalize it;
-- expand any helix from `H00` through `H19`;
-- choose `A`, `T`, `C`, or `G` for each gene position on each strand;
-- set both strands quickly with one click;
-- apply small transparent DNA presets that change visible bases, not hidden expression tables;
-- copy the finished DNA to clipboard;
-- save the finished DNA as a `.txt` file inside the copied branch.
-
-This means you can actually see what is being changed instead of guessing what a preset did.
-
-## What it changes in the temporary branch
-
-- Removes SIM9000's 5.0-second acceptance barrier.
-- Changes the SIM9000 `T` readout to 3 decimals.
-- Keeps SIM9000's normal search/scoring behavior by default.
-- Includes the CaseOh90000 panel.
-- Includes `caseOh mOde` as an Easter Egg.
-- Includes the Direct DNA Editor for exact A/T/C/G editing.
-
-## Recommended workflow
-
-1. Run `00_START_HERE_CaseOh90000.bat`.
-2. Choose your normal Horsey Game folder.
-3. Choose where the copied branch should live.
-4. Use the copied branch to experiment with SIM9000.
-5. Open the CaseOh90000 panel.
-6. Use **Direct DNA Editor** to build or tweak genomes.
-7. Copy the genome and paste it into CRISPR / SIM9000 / Notepad / your normal game.
-
-## Start here
+Most players only need this file first:
 
 ```powershell
 .\00_START_HERE_CaseOh90000.bat
@@ -53,54 +14,68 @@ This means you can actually see what is being changed instead of guessing what a
 
 The setup wizard asks for:
 
-1. the folder that contains your normal `Horsey.exe`; and
-2. where the CaseOh90000 branch should live.
+1. your normal Horsey Game folder, the one with `Horsey.exe`;
+2. where the copied CaseOh90000 branch should live;
+3. whether you want a desktop shortcut.
 
-The tool can also create a desktop shortcut.
+## Normal Use
 
-## Daily use
+After setup, use this when you want to rebuild the branch from your newest normal save, launch Horsey, and open the CaseOh90000 panel:
 
 ```powershell
 .\CaseOh90000_RUN_FROM_LATEST_SAVE.bat
 ```
 
-That rebuilds the copied branch from your latest normal save, applies the mod, launches the branch, and opens the CaseOh90000 panel.
+## What The Panel Is For
 
-## Direct DNA Editor
+**Direct DNA Editor** is the recommended tab. It makes normal 40-line Horsey DNA that you can copy, save, paste into CRISPR, or use with SIM9000 results.
 
-The Direct DNA Editor is the tab to use when you want precise control.
+**SIM Engine** changes the copied branch so SIM9000 is easier to use. It removes the 5.0-second acceptance barrier, shows `T` with 3 decimals, and keeps normal search behavior by default.
 
-- **DNA text** is the normal 40-line format.
-- **Transparent DNA presets** apply a few visible base edits.
-- **Partial direct DNA injection** remembers edited bases as locks.
-- **Paste SIM result + apply locks** injects only those locked bases into a fresh SIM result DNA.
-- **Expand helixes H00–H19** lets you choose each base manually.
-- **Copy DNA** puts the normalized genome on your clipboard.
-- **Save DNA .txt to branch** writes the genome to `CaseOh90000_seed_dna` in the copied branch.
+**SIM Gene Lab** is advanced. It edits the copied branch's `data/genes.xml` expression values, which can be useful for strange experiments but is less predictable than direct DNA editing.
 
-The editor does not change your normal save. It creates pasteable DNA strings, and the panel remembers your last selected presets/options when it closes.
+## Direct DNA Workflow
 
-## SIM Gene Lab
+1. Paste DNA, load a `.txt`, or start from a blank A/A genome.
+2. Apply a small DNA preset or expand helixes `H00` through `H19`.
+3. Edit the exact `A`, `T`, `C`, or `G` bases you want.
+4. Those edited bases become **DNA locks**.
+5. Paste a SIM result and apply the locked bases to keep only your chosen changes.
+6. Copy the final DNA or save it as a text file in the copied branch.
 
-SIM Gene Lab is still included, but it edits branch `data/genes.xml` expression values. That can be useful for strange experiments, but it is less predictable than direct DNA editing.
+DNA locks remember only the bases you touched, then re-apply those bases to a fresh SIM result without replacing the whole horse.
 
-Use Direct DNA Editor when you want exact `A/T/C/G` control.
+The panel remembers your last selected Direct DNA preset, strand choice, DNA text, window options, and active DNA locks when it closes.
 
-## Useful files
+## Useful Launchers
 
 ```text
-00_START_HERE_CaseOh90000.bat              Setup wizard, branch build, launch.
-CaseOh90000_RUN_FROM_LATEST_SAVE.bat       Rebuild branch from latest save, launch game, open panel.
-CaseOh90000_OPEN_PANEL.bat                 Open the panel manually.
-CaseOh90000_CREATE_DESKTOP_SHORTCUT.bat    Create/recreate the desktop shortcut.
+00_START_HERE_CaseOh90000.bat              First-time setup, branch build, launch.
+CaseOh90000_RUN_FROM_LATEST_SAVE.bat       Rebuild from latest save, launch game, open panel.
+CaseOh90000_OPEN_PANEL.bat                 Open only the panel.
+CaseOh90000_CREATE_DESKTOP_SHORTCUT.bat    Create or refresh the desktop shortcut.
 CaseOh90000_OPEN_BRANCH_FOLDER.bat         Open the copied branch folder.
-CaseOh90000_RESTORE_BRANCH_ORIGINAL.bat    Restore the copied branch's original executable/data.
+CaseOh90000_RESTORE_BRANCH_ORIGINAL.bat    Restore original files inside the copied branch.
 CaseOh90000_ENABLE_CASEOH_MODE.bat         Enable the Easter Egg in the branch.
 CaseOh90000_DISABLE_CASEOH_MODE.bat        Disable the Easter Egg in the branch.
 ```
 
+## Folder Map
+
+```text
+README.md                 Player instructions.
+CHANGELOG.md              Human-readable change history.
+SECURITY.md               Safety and reporting notes.
+AGENTS.md                 Rules for Codex or other coding agents.
+scripts/                  Build and basic check helpers.
+docs/releases/            Release notes.
+docs/codex/               Codex handoff notes and task prompts.
+```
+
+The root folder keeps the files a player is most likely to double-click. Developer-only notes live under `docs/`.
+
 ## Safety
 
-CaseOh90000 is designed around a copied branch. Your normal Steam install and normal save are not supposed to be modified by the branch tool.
+CaseOh90000 does not include Horsey Game, game assets, `Horsey.exe`, or save files.
 
-Back up your save anyway before using mods.
+The tool is designed to patch only the copied branch. Back up your save before using mods anyway.

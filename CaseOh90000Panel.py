@@ -132,7 +132,7 @@ DESCRIPTIONS = {
         "Old expression preset controls. These edit branch genes.xml. For exact A/T/C/G base choices, use the Direct DNA Editor tab instead."
     ),
     "dna_editor": (
-        "Direct DNA editor. This makes normal 40-line Horsey DNA strings by choosing A/T/C/G for each gene position. It does not patch genes.xml and it does not pretend presets are magic — you can expand any helix and see every base it changes."
+        "Direct DNA editor. This makes normal 40-line Horsey DNA strings by choosing A/T/C/G for each gene position. It does not patch genes.xml. You can expand any helix and see every base it changes."
     ),
     "finish_metric_threshold": "Internal finish logic value. Kept stock in this UI.",
     "display_time_divisor": "Displayed time conversion. Kept stock in this UI.",
@@ -905,7 +905,7 @@ class OverlayApp(tk.Tk):
         precision = ttk.LabelFrame(root, text="Display precision", padding=8)
         precision.pack(fill="x", padx=4, pady=5)
         self.vars["display_precision"] = tk.IntVar(value=int(self.settings.get("display_precision", 3)))
-        for text, val in [("T:%.1f — original", 1), ("T:%.2f", 2), ("T:%.3f — recommended", 3)]:
+        for text, val in [("T:%.1f - original", 1), ("T:%.2f", 2), ("T:%.3f - recommended", 3)]:
             ttk.Radiobutton(precision, text=text, value=val, variable=self.vars["display_precision"]).pack(anchor="w")
         self._add_desc(precision, "display_precision")
 
@@ -967,7 +967,7 @@ class OverlayApp(tk.Tk):
         ttk.Button(quick, text="Clear Gene Lab", command=self.clear_gene_lab).pack(side="left", padx=3, pady=2)
         ttk.Button(quick, text="Copy exploding seed DNA", command=self.copy_exploding_seed).pack(side="left", padx=3, pady=2)
 
-        per = ttk.LabelFrame(root, text="Per-helix controls — test one chromosome at a time", padding=8)
+        per = ttk.LabelFrame(root, text="Per-helix controls - test one chromosome at a time", padding=8)
         per.pack(fill="x", padx=4, pady=5)
         self._add_desc(per, "helix_presets")
         self.helix_vars: Dict[str, tk.StringVar] = {}
@@ -978,7 +978,7 @@ class OverlayApp(tk.Tk):
             row = ttk.Frame(per); row.pack(fill="x", pady=1)
             start, end = HELIX_RANGES[h]
             ttk.Label(row, text=f"H{h}", width=5).pack(side="left")
-            ttk.Label(row, text=f"P00–P{end-1:02d}", width=14, foreground="#555555").pack(side="left")
+            ttk.Label(row, text=f"P00-P{end-1:02d}", width=14, foreground="#555555").pack(side="left")
             var = tk.StringVar(value=hp.get(h, "Unchanged"))
             self.helix_vars[h] = var
             ttk.OptionMenu(row, var, var.get(), *HELIX_PRESETS).pack(side="left", fill="x", expand=True)
@@ -993,7 +993,7 @@ class OverlayApp(tk.Tk):
     def _build_dna_editor(self, root: tk.Widget) -> None:
         ttk.Label(
             root,
-            text="Direct DNA Editor makes pasteable 40-line Horsey DNA. Expand H00–H19 to choose A/T/C/G for each gene on each strand. This is exact DNA editing, not genes.xml expression patching.",
+            text="Direct DNA Editor makes pasteable 40-line Horsey DNA. Expand H00-H19 to choose A/T/C/G for each gene on each strand. This is exact DNA editing, not genes.xml expression patching.",
             wraplength=680,
         ).pack(anchor="w", padx=4, pady=6)
         info = ttk.LabelFrame(root, text="DNA text", padding=8)
@@ -1007,20 +1007,20 @@ class OverlayApp(tk.Tk):
         self.dna_status = tk.StringVar(value="Paste DNA, load a preset, or expand a helix below.")
         ttk.Label(info, textvariable=self.dna_status, wraplength=660).pack(anchor="w", pady=(0, 4))
         buttons = ttk.Frame(info); buttons.pack(fill="x")
-        ttk.Button(buttons, text="Validate / load into editor", command=self.dna_load_text_into_editor).pack(side="left", padx=3, pady=2)
-        ttk.Button(buttons, text="Update DNA text from expanded controls", command=self.dna_update_text_from_controls).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons, text="Validate and load", command=self.dna_load_text_into_editor).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons, text="Update DNA text", command=self.dna_update_text_from_controls).pack(side="left", padx=3, pady=2)
         ttk.Button(buttons, text="Copy DNA", command=self.dna_copy_text).pack(side="left", padx=3, pady=2)
-        ttk.Button(buttons, text="Save DNA .txt to branch", command=self.dna_save_to_branch).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons, text="Save DNA text file", command=self.dna_save_to_branch).pack(side="left", padx=3, pady=2)
         buttons2 = ttk.Frame(info); buttons2.pack(fill="x")
         ttk.Button(buttons2, text="Paste DNA", command=self.dna_paste_clipboard).pack(side="left", padx=3, pady=2)
-        ttk.Button(buttons2, text="Paste SIM result + apply locks", command=self.dna_paste_apply_locks).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons2, text="Paste SIM result + locks", command=self.dna_paste_apply_locks).pack(side="left", padx=3, pady=2)
         ttk.Button(buttons2, text="Load .txt file", command=self.dna_load_file).pack(side="left", padx=3, pady=2)
         ttk.Button(buttons2, text="Load exploding seed", command=self.dna_load_exploding_seed).pack(side="left", padx=3, pady=2)
         ttk.Button(buttons2, text="Clear DNA to A/A", command=self.dna_clear_blank).pack(side="left", padx=3, pady=2)
 
-        preset_box = ttk.LabelFrame(root, text="Transparent DNA presets", padding=8)
+        preset_box = ttk.LabelFrame(root, text="Small DNA presets", padding=8)
         preset_box.pack(fill="x", padx=4, pady=5)
-        ttk.Label(preset_box, text="These presets change visible A/T/C/G bases in the DNA text. They are intentionally small so you can see and adjust what changed.", wraplength=660).pack(anchor="w", pady=(0, 4))
+        ttk.Label(preset_box, text="Presets change a small number of visible A/T/C/G bases. You can see each edit, adjust it, or clear the locked bases later.", wraplength=660).pack(anchor="w", pady=(0, 4))
         row = ttk.Frame(preset_box); row.pack(fill="x")
         preset = str(self.settings.get("dna_preset", "Do not change"))
         if preset not in DIRECT_PRESET_NAMES:
@@ -1032,20 +1032,20 @@ class OverlayApp(tk.Tk):
             strand = "both"
         self.dna_strand_var = tk.StringVar(value=strand)
         ttk.OptionMenu(row, self.dna_strand_var, self.dna_strand_var.get(), "both", "top", "bottom", command=lambda _=None: self.dna_save_editor_settings()).pack(side="left", padx=(0, 6))
-        ttk.Button(row, text="Apply preset to DNA", command=self.dna_apply_direct_preset).pack(side="left")
+        ttk.Button(row, text="Apply preset", command=self.dna_apply_direct_preset).pack(side="left")
 
-        lock_box = ttk.LabelFrame(root, text="Partial direct DNA injection", padding=8)
+        lock_box = ttk.LabelFrame(root, text="DNA locks for SIM results", padding=8)
         lock_box.pack(fill="x", padx=4, pady=5)
-        ttk.Label(lock_box, text="When you edit a base or apply a preset, those positions are saved as locks. Paste a SIM result, then apply the locks to change only those bases.", wraplength=660).pack(anchor="w", pady=(0, 4))
+        ttk.Label(lock_box, text="Edited bases are remembered here. Paste a new SIM result, then apply the locked bases to keep only your chosen changes.", wraplength=660).pack(anchor="w", pady=(0, 4))
         self.dna_output_locks = normalize_dna_locks(self.settings.get("dna_output_locks", {}))
         self.dna_lock_status = tk.StringVar(value="")
         lock_row = ttk.Frame(lock_box); lock_row.pack(fill="x")
-        ttk.Button(lock_row, text="Apply locks to DNA text", command=self.dna_apply_locks_to_text).pack(side="left", padx=3, pady=2)
-        ttk.Button(lock_row, text="Clear locks", command=self.dna_clear_locks).pack(side="left", padx=3, pady=2)
+        ttk.Button(lock_row, text="Apply locked bases", command=self.dna_apply_locks_to_text).pack(side="left", padx=3, pady=2)
+        ttk.Button(lock_row, text="Clear locked bases", command=self.dna_clear_locks).pack(side="left", padx=3, pady=2)
         ttk.Label(lock_box, textvariable=self.dna_lock_status, wraplength=660, foreground="#333333").pack(anchor="w", pady=(4, 0))
         self.dna_update_lock_status()
 
-        self.dna_editor_box = ttk.LabelFrame(root, text="Expandable helix editor H00–H19", padding=8)
+        self.dna_editor_box = ttk.LabelFrame(root, text="Expandable helix editor H00-H19", padding=8)
         self.dna_editor_box.pack(fill="x", padx=4, pady=5)
         quick_open = ttk.Frame(self.dna_editor_box)
         quick_open.pack(fill="x", pady=(0, 6))
@@ -1290,7 +1290,7 @@ class OverlayApp(tk.Tk):
         self.dna_output_locks = {}
         self.dna_update_lock_status()
         self.dna_save_editor_settings()
-        self.dna_status.set("Cleared partial DNA locks. Presets and manual edits will create new locks.")
+        self.dna_status.set("Cleared DNA locks. Presets and manual edits will create new locked bases.")
 
     def dna_copy_text(self) -> None:
         text = self.dna_current_text()
@@ -1465,7 +1465,7 @@ class OverlayApp(tk.Tk):
             key = widget.key  # type: ignore[attr-defined]
             val = int(self.vars[key].get())
             if key in {"min_finish_frames", "no_progress_frames", "max_sim_frames"}:
-                text = f"{val} frames ≈ {val / 60.0:.3f}s"
+                text = f"{val} frames / {val / 60.0:.3f}s"
             elif key == "valid_result_max":
                 text = f"{val} score cutoff"
             elif key == "initial_generation_limit":
