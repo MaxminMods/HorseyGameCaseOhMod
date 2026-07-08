@@ -1,0 +1,2 @@
+# No third-party packages required for CaseOh90000 v1.3.
+# Tkinter is included with the standard python.org Windows installer.
