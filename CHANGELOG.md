@@ -5,6 +5,10 @@
 - Reworded the README around the normal player flow: start setup, run from latest save, use Direct DNA, then copy/save DNA.
 - Moved Codex-only notes into `docs/codex/`.
 - Moved release notes into `docs/releases/`.
+- Increased the panel font size and default window width for easier reading.
+- Moved the main tabs directly under the header and moved privacy/hotkey controls into a Settings tab.
+- Added drag-to-reorder tabs, with the order saved between panel launches.
+- Split dense SIM slider sections into columns to reduce scrolling.
 - Renamed the injection-style wording to **DNA locks**.
 - Kept launchers at the repo root so double-click workflows stay obvious.
 - Panel choices are now saved when the window closes, including presets that were selected but not yet patched.

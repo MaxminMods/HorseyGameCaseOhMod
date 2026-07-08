@@ -16,6 +16,7 @@ from pathlib import Path
 import struct
 import sys
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Dict, List, Tuple
 
@@ -71,6 +72,7 @@ SEARCH_I32 = ["initial_generation_limit", "initial_genepool_size", "sim_work_per
 SEARCH_U8 = ["elite_parent_percent", "min_generation_for_disk"]
 SEARCH_KEYS = SEARCH_I32 + SEARCH_U8
 ADVANCED_FLOAT_KEYS = ["finish_metric_threshold", "display_time_divisor", "result_score_scale", "invalid_score_sentinel"]
+TAB_ORDER = ["dna", "main", "gene_lab", "search", "settings"]
 
 DESCRIPTIONS = {
     "min_finish_frames": (
@@ -404,6 +406,7 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "dna_preset": "Do not change",
         "dna_preset_strands": "both",
         "dna_output_locks": {},
+        "tab_order": list(TAB_ORDER),
     }
 
 
@@ -442,6 +445,17 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     if s.get("dna_preset_strands") not in {"both", "top", "bottom"}:
         s["dna_preset_strands"] = "both"
     s["dna_output_locks"] = normalize_dna_locks(s.get("dna_output_locks", {}))
+    saved_tabs = s.get("tab_order", [])
+    ordered_tabs: List[str] = []
+    if isinstance(saved_tabs, list):
+        for key in saved_tabs:
+            key = str(key)
+            if key in TAB_ORDER and key not in ordered_tabs:
+                ordered_tabs.append(key)
+    for key in TAB_ORDER:
+        if key not in ordered_tabs:
+            ordered_tabs.append(key)
+    s["tab_order"] = ordered_tabs
     gl_defaults = default_gene_lab_settings()
     s["gene_lab_enabled"] = bool(s.get("gene_lab_enabled", gl_defaults["gene_lab_enabled"]))
     if s.get("species_profile") not in SPECIES_PROFILES:
@@ -588,7 +602,8 @@ class Scrollable(ttk.Frame):
         ybar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.frame = ttk.Frame(self.canvas)
         self.frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.create_window((0, 0), window=self.frame, anchor="nw")
+        self.window_id = self.canvas.create_window((0, 0), window=self.frame, anchor="nw")
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window_id, width=e.width))
         self.canvas.configure(yscrollcommand=ybar.set)
         self.canvas.pack(side="left", fill="both", expand=True)
         ybar.pack(side="right", fill="y")
@@ -613,8 +628,10 @@ class OverlayApp(tk.Tk):
         self.scrollables: List[Scrollable] = []
         self.hotkey_id = 0x4847
         self.hotkey_registered = False
-        self.title("CaseOh90000")
-        self.geometry("640x780")
+        self.title("HorseyGameCaseOhMod v2")
+        self.geometry("920x760")
+        self.minsize(760, 620)
+        self._configure_fonts()
         self.topmost_var = tk.BooleanVar(value=bool(self.settings.get("window_topmost", False)))
         self.follow_var = tk.BooleanVar(value=bool(self.settings.get("window_follow", False)))
         self.attributes("-topmost", bool(self.topmost_var.get()))
@@ -636,49 +653,100 @@ class OverlayApp(tk.Tk):
         if self._startup_dock_attempts < 12:
             self.after(900, self._startup_dock_retry)
 
+    def _configure_fonts(self) -> None:
+        self.option_add("*Font", "Segoe UI 11")
+        self.option_add("*Text.Font", "Consolas 11")
+        for font_name in ["TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkTooltipFont"]:
+            try:
+                font = tkfont.nametofont(font_name)
+            except tk.TclError:
+                continue
+            if font_name == "TkTextFont":
+                font.configure(family="Consolas", size=11)
+            else:
+                font.configure(family="Segoe UI", size=11)
+        style = ttk.Style(self)
+        style.configure(".", font=("Segoe UI", 11))
+        style.configure("TButton", padding=(8, 5))
+        style.configure("TCheckbutton", padding=(2, 3))
+        style.configure("TRadiobutton", padding=(2, 3))
+        style.configure("TNotebook", tabposition="n")
+        style.configure("TNotebook.Tab", font=("Segoe UI", 11, "bold"), padding=(16, 8))
+        style.configure("TLabelframe.Label", font=("Segoe UI", 11, "bold"))
+        style.configure("Title.TLabel", font=("Segoe UI", 20, "bold"))
+        style.configure("Subtle.TLabel", foreground="#444444")
+        style.configure("Status.TLabel", foreground="#1f3a5f")
+
     def _build_ui(self) -> None:
-        outer = ttk.Frame(self, padding=10)
+        outer = ttk.Frame(self, padding=12)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text="CaseOh90000", font=("Segoe UI", 15, "bold")).pack(anchor="w")
-        ttk.Label(outer, text="A small control panel for the copied CaseOh90000 branch. Make horses in the branch, then copy any genome you like back into your normal game by hand.", wraplength=600).pack(anchor="w", pady=(2, 4))
+
         self.vars["streamer_privacy"] = tk.BooleanVar(value=bool(self.settings.get("streamer_privacy", True)))
         self.vars["show_file_paths"] = tk.BooleanVar(value=bool(self.settings.get("show_file_paths", False)))
-        privacy = ttk.LabelFrame(outer, text="Streaming privacy", padding=8)
-        privacy.pack(fill="x", pady=(2, 8))
-        ttk.Checkbutton(privacy, text="Hide folder paths on this panel", variable=self.vars["streamer_privacy"], command=self._refresh_privacy).pack(side="left", padx=(0, 8))
-        ttk.Checkbutton(privacy, text="Temporarily show paths", variable=self.vars["show_file_paths"], command=self._refresh_privacy).pack(side="left")
-        self._add_desc(privacy, "streamer_privacy")
+
+        header = ttk.Frame(outer)
+        header.pack(fill="x", pady=(0, 8))
+        title_area = ttk.Frame(header)
+        title_area.pack(side="left", fill="x", expand=True)
+        ttk.Label(title_area, text="HorseyGameCaseOhMod v2", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            title_area,
+            text="Direct DNA, SIM9000 tuning, and copied-branch tools for Horsey Game.",
+            style="Subtle.TLabel",
+            wraplength=680,
+        ).pack(anchor="w", pady=(1, 2))
         self.branch_label_var = tk.StringVar(value="")
-        self.branch_label = ttk.Label(outer, textvariable=self.branch_label_var, wraplength=600)
-        self.branch_label.pack(anchor="w", pady=(0, 8))
+        self.branch_label = ttk.Label(title_area, textvariable=self.branch_label_var, style="Subtle.TLabel", wraplength=720)
+        self.branch_label.pack(anchor="w")
         self._refresh_privacy()
         self.status = tk.StringVar(value="Ready. Patch running game for immediate changes. Patch disk + restart for changes that load at startup.")
-        ttk.Label(outer, textvariable=self.status, wraplength=600).pack(anchor="w", pady=(0, 8))
 
-        window_row = ttk.Frame(outer)
-        window_row.pack(fill="x", pady=(0, 8))
-        ttk.Button(window_row, text="Dock beside Horsey", command=self.dock_next_to_horsey).pack(side="left", padx=(0, 6))
-        ttk.Checkbutton(window_row, text="Stay on top", variable=self.topmost_var, command=self.toggle_topmost).pack(side="left", padx=(0, 6))
-        ttk.Checkbutton(window_row, text="Follow Horsey", variable=self.follow_var, command=self.toggle_follow).pack(side="left", padx=(0, 6))
-        ttk.Button(window_row, text="Hide panel", command=self.toggle_panel_visibility).pack(side="left")
+        header_actions = ttk.Frame(header)
+        header_actions.pack(side="right", anchor="ne", padx=(12, 0))
+        ttk.Button(header_actions, text="Dock", command=self.dock_next_to_horsey).pack(side="left", padx=(0, 6))
+        ttk.Button(header_actions, text="Hide", command=self.toggle_panel_visibility).pack(side="left")
+        ttk.Checkbutton(header_actions, text="Top", variable=self.topmost_var, command=self.toggle_topmost).pack(side="left", padx=(8, 0))
 
-        self._build_hotkey_box(outer)
+        status_row = ttk.Frame(outer)
+        status_row.pack(fill="x", pady=(0, 8))
+        ttk.Label(status_row, textvariable=self.status, style="Status.TLabel", wraplength=840).pack(anchor="w")
 
         nb = ttk.Notebook(outer)
+        self.notebook = nb
         nb.pack(fill="both", expand=True)
-        self.core_tab = Scrollable(nb); nb.add(self.core_tab, text="Main")
-        self.dna_tab = Scrollable(nb); nb.add(self.dna_tab, text="Direct DNA Editor")
-        self.gene_lab_tab = Scrollable(nb); nb.add(self.gene_lab_tab, text="SIM Gene Lab (advanced)")
-        self.search_tab = Scrollable(nb); nb.add(self.search_tab, text="Experiments")
-        self.scrollables = [self.core_tab, self.gene_lab_tab, self.dna_tab, self.search_tab]
+        self.dna_tab = Scrollable(nb)
+        self.core_tab = Scrollable(nb)
+        self.gene_lab_tab = Scrollable(nb)
+        self.search_tab = Scrollable(nb)
+        self.settings_tab = Scrollable(nb)
+        self.tab_widgets: Dict[str, Scrollable] = {
+            "dna": self.dna_tab,
+            "main": self.core_tab,
+            "gene_lab": self.gene_lab_tab,
+            "search": self.search_tab,
+            "settings": self.settings_tab,
+        }
+        self.tab_titles = {
+            "dna": "Direct DNA",
+            "main": "SIM Engine",
+            "gene_lab": "Gene Lab",
+            "search": "Experiments",
+            "settings": "Settings",
+        }
+        for key in self.settings.get("tab_order", TAB_ORDER):
+            if key in self.tab_widgets:
+                nb.add(self.tab_widgets[key], text=self.tab_titles[key])
+        self.scrollables = list(self.tab_widgets.values())
 
         self._build_core(self.core_tab.frame)
         self._build_gene_lab(self.gene_lab_tab.frame)
         self._build_dna_editor(self.dna_tab.frame)
         self._build_search(self.search_tab.frame)
+        self._build_settings(self.settings_tab.frame)
+        self._enable_tab_dragging(nb)
 
         btns = ttk.Frame(outer)
-        btns.pack(fill="x", pady=8)
+        btns.pack(fill="x", pady=(10, 0))
         ttk.Button(btns, text="Apply to running game", command=self.patch_live).pack(side="left", padx=3)
         ttk.Button(btns, text="Save to branch files", command=self.patch_disk).pack(side="left", padx=3)
         ttk.Button(btns, text="Load baseline", command=self.preset_baseline).pack(side="left", padx=3)
@@ -698,9 +766,31 @@ class OverlayApp(tk.Tk):
         except Exception:
             pass
 
+    def _build_settings(self, root: tk.Widget) -> None:
+        ttk.Label(
+            root,
+            text="Panel settings live here so the main tabs stay at the top. Drag the tabs to reorder them; the order is saved.",
+            wraplength=840,
+        ).pack(anchor="w", padx=4, pady=6)
+
+        window = ttk.LabelFrame(root, text="Window", padding=10)
+        window.pack(fill="x", padx=4, pady=6)
+        ttk.Button(window, text="Dock beside Horsey", command=self.dock_next_to_horsey).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(window, text="Stay on top", variable=self.topmost_var, command=self.toggle_topmost).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(window, text="Follow Horsey", variable=self.follow_var, command=self.toggle_follow).pack(side="left", padx=(0, 8))
+        ttk.Button(window, text="Hide panel", command=self.toggle_panel_visibility).pack(side="left")
+
+        privacy = ttk.LabelFrame(root, text="Streaming privacy", padding=10)
+        privacy.pack(fill="x", padx=4, pady=6)
+        ttk.Checkbutton(privacy, text="Hide folder paths", variable=self.vars["streamer_privacy"], command=self._refresh_privacy).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(privacy, text="Temporarily show paths", variable=self.vars["show_file_paths"], command=self._refresh_privacy).pack(side="left")
+        self._add_desc(privacy, "streamer_privacy")
+
+        self._build_hotkey_box(root)
+
     def _build_hotkey_box(self, parent: tk.Widget) -> None:
-        hot = ttk.LabelFrame(parent, text="Optional keyboard shortcut", padding=8)
-        hot.pack(fill="x", pady=(0, 8))
+        hot = ttk.LabelFrame(parent, text="Optional keyboard shortcut", padding=10)
+        hot.pack(fill="x", padx=4, pady=6)
         row = ttk.Frame(hot)
         row.pack(fill="x")
         self.vars["hotkey_enabled"] = tk.BooleanVar(value=bool(self.settings.get("hotkey_enabled", True)))
@@ -717,7 +807,78 @@ class OverlayApp(tk.Tk):
         ttk.OptionMenu(row, self.vars["hotkey_key"], self.vars["hotkey_key"].get(), *HOTKEY_KEYS).pack(side="left", padx=(0, 8))
         ttk.Button(row, text="Bind / update", command=self.register_hotkey_from_ui).pack(side="left", padx=(0, 6))
         ttk.Button(row, text="Test toggle", command=self.toggle_panel_visibility).pack(side="left")
-        ttk.Label(hot, text=DESCRIPTIONS["hotkey"], wraplength=600, foreground="#333333").pack(anchor="w", pady=(6, 0))
+        ttk.Label(hot, text=DESCRIPTIONS["hotkey"], wraplength=820, foreground="#333333").pack(anchor="w", pady=(6, 0))
+
+    def _tab_key_for_widget(self, widget_name: str) -> str | None:
+        for key, widget in getattr(self, "tab_widgets", {}).items():
+            if str(widget) == str(widget_name):
+                return key
+        return None
+
+    def _current_tab_order(self) -> List[str]:
+        order: List[str] = []
+        nb = getattr(self, "notebook", None)
+        if nb is None:
+            return list(TAB_ORDER)
+        for tab_name in nb.tabs():
+            key = self._tab_key_for_widget(tab_name)
+            if key is not None:
+                order.append(key)
+        for key in TAB_ORDER:
+            if key not in order:
+                order.append(key)
+        return order
+
+    def _save_tab_order(self) -> None:
+        try:
+            self.settings["tab_order"] = self._current_tab_order()
+            write_settings(self.branch, self.settings)
+        except Exception:
+            pass
+
+    def _tab_index_at(self, event: tk.Event) -> int | None:
+        nb = event.widget
+        try:
+            element = str(nb.identify(event.x, event.y))
+            if "tab" not in element and "label" not in element and "padding" not in element:
+                return None
+            return int(nb.index(f"@{event.x},{event.y}"))
+        except Exception:
+            return None
+
+    def _enable_tab_dragging(self, nb: ttk.Notebook) -> None:
+        self._drag_tab_name: str | None = None
+        nb.bind("<ButtonPress-1>", self._on_tab_press, add="+")
+        nb.bind("<B1-Motion>", self._on_tab_drag, add="+")
+        nb.bind("<ButtonRelease-1>", self._on_tab_release, add="+")
+
+    def _on_tab_press(self, event: tk.Event) -> None:
+        idx = self._tab_index_at(event)
+        if idx is None:
+            self._drag_tab_name = None
+            return
+        tabs = event.widget.tabs()
+        self._drag_tab_name = tabs[idx] if idx < len(tabs) else None
+
+    def _on_tab_drag(self, event: tk.Event) -> None:
+        tab_name = getattr(self, "_drag_tab_name", None)
+        if not tab_name:
+            return
+        idx = self._tab_index_at(event)
+        if idx is None:
+            return
+        nb = event.widget
+        tabs = nb.tabs()
+        if idx >= len(tabs) or tabs[idx] == tab_name:
+            return
+        nb.insert(idx, tab_name)
+        nb.select(tab_name)
+        self._save_tab_order()
+
+    def _on_tab_release(self, _event: tk.Event) -> None:
+        if getattr(self, "_drag_tab_name", None):
+            self._save_tab_order()
+        self._drag_tab_name = None
 
     def _bind_mousewheel(self) -> None:
         # Bind once at the window level so the wheel works over labels, sliders,
@@ -879,10 +1040,10 @@ class OverlayApp(tk.Tk):
                 self.geometry(f"{panel_w}x{panel_h}+{x}+{y}")
             self.after(1200, self._maybe_follow)
 
-    def _add_desc(self, parent: tk.Widget, key: str) -> None:
-        ttk.Label(parent, text=DESCRIPTIONS.get(key, ""), wraplength=680, foreground="#333333").pack(anchor="w", pady=(2, 2))
+    def _add_desc(self, parent: tk.Widget, key: str, wraplength: int = 820) -> None:
+        ttk.Label(parent, text=DESCRIPTIONS.get(key, ""), wraplength=wraplength, foreground="#333333").pack(anchor="w", pady=(2, 2))
 
-    def _add_scale(self, parent: tk.Widget, key: str, label: str, lo: int, hi: int) -> None:
+    def _add_scale(self, parent: tk.Widget, key: str, label: str, lo: int, hi: int, wraplength: int = 820) -> None:
         var = tk.IntVar(value=int(self.settings.get(key, lo)))
         self.vars[key] = var
         box = ttk.LabelFrame(parent, text=label, padding=8)
@@ -890,17 +1051,23 @@ class OverlayApp(tk.Tk):
         value = ttk.Label(box, text="")
         value.pack(anchor="w")
         ttk.Scale(box, from_=lo, to=hi, variable=var, orient="horizontal", command=lambda _=None: self._update_labels()).pack(fill="x")
-        self._add_desc(box, key)
+        self._add_desc(box, key, wraplength=wraplength)
         box.key = key  # type: ignore[attr-defined]
         box.value_label = value  # type: ignore[attr-defined]
         self.scale_widgets.append(box)
 
     def _build_core(self, root: tk.Widget) -> None:
-        ttk.Label(root, text="Start here. These are the practical SIM9000 settings that matter most. The proven baseline keeps SIM9000's normal search behavior.", wraplength=680).pack(anchor="w", padx=4, pady=6)
-        self._add_scale(root, "min_finish_frames", "Minimum accepted finish frames / 5.0 barrier", 0, 600)
-        self._add_scale(root, "no_progress_frames", "Stall/no-progress cull frames", 0, 1800)
-        self._add_scale(root, "max_sim_frames", "Maximum SIM9000 candidate frame budget", 300, 21600)
-        self._add_scale(root, "valid_result_max", "Valid-result score max", 1000, 30000)
+        ttk.Label(root, text="Start here. These are the practical SIM9000 settings that matter most. The proven baseline keeps SIM9000's normal search behavior.", wraplength=840).pack(anchor="w", padx=4, pady=6)
+        columns = ttk.Frame(root)
+        columns.pack(fill="x")
+        left = ttk.Frame(columns)
+        right = ttk.Frame(columns)
+        left.pack(side="left", fill="both", expand=True)
+        right.pack(side="left", fill="both", expand=True)
+        self._add_scale(left, "min_finish_frames", "Minimum accepted finish frames / 5.0 barrier", 0, 600, wraplength=390)
+        self._add_scale(right, "no_progress_frames", "Stall/no-progress cull frames", 0, 1800, wraplength=390)
+        self._add_scale(left, "max_sim_frames", "Maximum SIM9000 candidate frame budget", 300, 21600, wraplength=390)
+        self._add_scale(right, "valid_result_max", "Valid-result score max", 1000, 30000, wraplength=390)
 
         precision = ttk.LabelFrame(root, text="Display precision", padding=8)
         precision.pack(fill="x", padx=4, pady=5)
@@ -1374,11 +1541,17 @@ class OverlayApp(tk.Tk):
         self._add_desc(box, "enable_search_controls")
         ttk.Label(box, text="When this is OFF, patching restores SIM9000's normal search values. This is the recommended baseline.", wraplength=680, foreground="#333333").pack(anchor="w", pady=(4, 0))
 
-        self._add_scale(root, "initial_generation_limit", "Generations per SIM9000 run", 1, 256)
-        self._add_scale(root, "initial_genepool_size", "Gene-pool / population size", 4, 512)
-        self._add_scale(root, "sim_work_per_ui_update", "SIM work batches per UI update", 30, 3000)
-        self._add_scale(root, "elite_parent_percent", "Elite parent / diversity percent", 1, 100)
-        self._add_scale(root, "min_generation_for_disk", "Earliest generation for result disk", 0, 127)
+        columns = ttk.Frame(root)
+        columns.pack(fill="x")
+        left = ttk.Frame(columns)
+        right = ttk.Frame(columns)
+        left.pack(side="left", fill="both", expand=True)
+        right.pack(side="left", fill="both", expand=True)
+        self._add_scale(left, "initial_generation_limit", "Generations per SIM9000 run", 1, 256, wraplength=390)
+        self._add_scale(right, "initial_genepool_size", "Gene-pool / population size", 4, 512, wraplength=390)
+        self._add_scale(left, "sim_work_per_ui_update", "SIM work batches per UI update", 30, 3000, wraplength=390)
+        self._add_scale(right, "elite_parent_percent", "Elite parent / diversity percent", 1, 100, wraplength=390)
+        self._add_scale(left, "min_generation_for_disk", "Earliest generation for result disk", 0, 127, wraplength=390)
 
         presets = ttk.LabelFrame(root, text="Experimental presets", padding=8)
         presets.pack(fill="x", padx=4, pady=5)
@@ -1454,6 +1627,8 @@ class OverlayApp(tk.Tk):
             strand = str(self.dna_strand_var.get())
             s["dna_preset_strands"] = strand if strand in {"both", "top", "bottom"} else "both"
         s["dna_output_locks"] = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
+        if hasattr(self, "notebook"):
+            s["tab_order"] = self._current_tab_order()
         # Advanced float controls are intentionally hidden in HorseyGameCaseOhMod v2; keep those values pinned to scanned originals.
         for key in ADVANCED_FLOAT_KEYS:
             if key in self.profile.get("patches", {}):

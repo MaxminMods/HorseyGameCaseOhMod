@@ -34,6 +34,8 @@ After setup, use this when you want to rebuild the branch from your newest norma
 
 **SIM Gene Lab** is advanced. It edits the copied branch's `data/genes.xml` expression values, which can be useful for strange experiments but is less predictable than direct DNA editing.
 
+The main tabs can be dragged into the order you prefer. The panel remembers that tab order when it closes.
+
 ## Direct DNA Workflow
 
 1. Paste DNA, load a `.txt`, or start from a blank A/A genome.
