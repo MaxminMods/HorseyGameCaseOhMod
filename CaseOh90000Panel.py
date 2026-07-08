@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CaseOh90000 v1.0 panel.
+HorseyGameCaseOhMod v2 panel with community racing archetypes, exploding finisher preset, Direct DNA, and a hidden Easter egg.
 
 No third-party packages. It can patch a branch on disk and, on Windows, patch the
 currently running Horsey.exe process. The panel is not always-on-top by default and can dock beside Horsey.
@@ -16,10 +16,24 @@ from pathlib import Path
 import struct
 import sys
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, Dict, List, Tuple
 
-from caseoh import apply_caseoh_mode
+from sim_gene_profiles import (
+    apply_gene_stack, default_gene_lab_settings, SPECIES_PROFILES, RACING_PRESETS,
+    HELIX_PRESETS, HELIX_RANGES, profile_status, restore_gene_xml,
+    force_caseoh_override_settings,
+)
+from exploding_seed import (
+    EXPLODING_FINISHER_SEED_DNA, apply_exploding_sim_overrides, is_exploding_requested,
+    write_exploding_seed_files, copy_seed_to_clipboard,
+)
+from dna_designer import (
+    BASES as DNA_BASES, DIRECT_PRESETS, DIRECT_PRESET_NAMES, HELIX_LENGTHS as DNA_HELIX_LENGTHS,
+    HELIX_GENE_NAMES as DNA_HELIX_GENE_NAMES, apply_direct_preset, apply_dna_locks, blank_genome,
+    dna_hash, format_dna, load_exploding_seed, normalize_dna, normalize_dna_locks,
+    set_dna_lock, write_dna_file,
+)
 
 
 DEFAULT_BRANCH = str(Path.home() / "Desktop" / "projects" / "CaseOh90000_BRANCH")
@@ -78,7 +92,7 @@ DESCRIPTIONS = {
     "display_precision": (
         "How many decimals the T readout shows. Three decimals makes close results easier to compare."
     ),
-    "caseoh_mode": "Easter Egg",
+    "caseoh_mode": "Easter Egg.",
     "enable_search_controls": (
         "Lets you experiment with SIM9000's search loop. Leave this off for the proven baseline behavior."
     ),
@@ -100,6 +114,25 @@ DESCRIPTIONS = {
     ),
     "hotkey": (
         "Optional hide/show shortcut. If Windows will not bind it on your machine, the Hide panel button does the same job."
+    ),
+    "streamer_privacy": (
+        "Hides full folder paths in this window so screen sharing does not reveal your Windows username or project folders."
+    ),
+
+    "gene_lab_enabled": (
+        "Turns on branch-only genes.xml profile patching. This does not rewrite DNA strings; it changes how selected genes express during SIM9000 runs."
+    ),
+    "species_profile": (
+        "Locks or biases body-plan/species traits. Use Any/no lock to let the normal gene pool mix species freely."
+    ),
+    "racing_preset": (
+        "Applies a racing archetype across the whole gene table: car, roll, tail power, tiny horse, and other discovery modes."
+    ),
+    "helix_presets": (
+        "Old expression preset controls. These edit branch genes.xml. For exact A/T/C/G base choices, use the Direct DNA Editor tab instead."
+    ),
+    "dna_editor": (
+        "Direct DNA editor. This makes normal 40-line Horsey DNA strings by choosing A/T/C/G for each gene position. It does not patch genes.xml. You can expand any helix and see every base it changes."
     ),
     "finish_metric_threshold": "Internal finish logic value. Kept stock in this UI.",
     "display_time_divisor": "Displayed time conversion. Kept stock in this UI.",
@@ -354,6 +387,8 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "result_score_scale": float(original(profile, "result_score_scale", 400.0)),
         "invalid_score_sentinel": float(original(profile, "invalid_score_sentinel", 20000.0)),
         "caseoh_mode": False,
+        "exploding_mode": False,
+        **default_gene_lab_settings(),
         # UI preferences, stored with the branch settings. These do not patch the game.
         "hotkey_enabled": True,
         "hotkey_ctrl": True,
@@ -361,6 +396,14 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "hotkey_shift": False,
         "hotkey_win": False,
         "hotkey_key": "G",
+        "streamer_privacy": True,
+        "show_file_paths": False,
+        "window_topmost": False,
+        "window_follow": False,
+        "dna_editor_text": "",
+        "dna_preset": "Do not change",
+        "dna_preset_strands": "both",
+        "dna_output_locks": {},
     }
 
 
@@ -389,6 +432,25 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     s["always_accept_early_finish"] = False
     s["enable_search_controls"] = bool(s.get("enable_search_controls"))
     s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
+    s["streamer_privacy"] = bool(s.get("streamer_privacy", True))
+    s["show_file_paths"] = bool(s.get("show_file_paths", False))
+    s["window_topmost"] = bool(s.get("window_topmost", False))
+    s["window_follow"] = bool(s.get("window_follow", False))
+    s["dna_editor_text"] = str(s.get("dna_editor_text", "") or "")
+    if s.get("dna_preset") not in DIRECT_PRESET_NAMES:
+        s["dna_preset"] = "Do not change"
+    if s.get("dna_preset_strands") not in {"both", "top", "bottom"}:
+        s["dna_preset_strands"] = "both"
+    s["dna_output_locks"] = normalize_dna_locks(s.get("dna_output_locks", {}))
+    gl_defaults = default_gene_lab_settings()
+    s["gene_lab_enabled"] = bool(s.get("gene_lab_enabled", gl_defaults["gene_lab_enabled"]))
+    if s.get("species_profile") not in SPECIES_PROFILES:
+        s["species_profile"] = gl_defaults["species_profile"]
+    if s.get("racing_preset") not in RACING_PRESETS:
+        s["racing_preset"] = gl_defaults["racing_preset"]
+    hp = dict(gl_defaults["helix_presets"])
+    hp.update(s.get("helix_presets") or {})
+    s["helix_presets"] = hp
     s["initial_generation_limit"] = max(1, int(s.get("initial_generation_limit", original(profile, "initial_generation_limit", 16))))
     gp = max(4, int(s.get("initial_genepool_size", original(profile, "initial_genepool_size", 40))))
     s["initial_genepool_size"] = max(4, (gp // 4) * 4)
@@ -398,6 +460,22 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     for key in ADVANCED_FLOAT_KEYS:
         if key in s:
             s[key] = float(s[key])
+    s = force_caseoh_override_settings(s)
+    if s.get("caseoh_mode", False):
+        # Easter egg mode: slow displayed winners, fast SIM turnaround.
+        s["min_finish_frames"] = 600
+        s["display_precision"] = 3
+        s["no_progress_frames"] = 840
+        s["max_sim_frames"] = 840
+        s["valid_result_max"] = 30000
+        s["display_time_divisor"] = 6.0
+        s["enable_search_controls"] = True
+        s["initial_generation_limit"] = 4
+        s["initial_genepool_size"] = 24
+        s["sim_work_per_ui_update"] = 3000
+        s["elite_parent_percent"] = 50
+        s["min_generation_for_disk"] = 1
+    s = apply_exploding_sim_overrides(s)
     return s
 
 
@@ -468,7 +546,7 @@ def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, An
     if not settings.get("enable_search_controls"):
         for key in SEARCH_KEYS:
             settings[key] = int(original(profile, key, settings.get(key, 0)))
-    apply_caseoh_mode(branch, bool(settings.get("caseoh_mode", False)))
+    apply_gene_stack(branch, settings)
     write_settings(branch, settings)
     return settings
 
@@ -489,7 +567,7 @@ def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, An
     if not s.get("enable_search_controls"):
         for key in SEARCH_KEYS:
             s[key] = int(original(profile, key, s.get(key, 0)))
-    apply_caseoh_mode(branch, bool(s.get("caseoh_mode", False)))
+    apply_gene_stack(branch, s)
     write_settings(branch, s)
     return s
 
@@ -537,9 +615,9 @@ class OverlayApp(tk.Tk):
         self.hotkey_registered = False
         self.title("CaseOh90000")
         self.geometry("640x780")
-        self.topmost_var = tk.BooleanVar(value=False)
-        self.follow_var = tk.BooleanVar(value=False)
-        self.attributes("-topmost", False)
+        self.topmost_var = tk.BooleanVar(value=bool(self.settings.get("window_topmost", False)))
+        self.follow_var = tk.BooleanVar(value=bool(self.settings.get("window_follow", False)))
+        self.attributes("-topmost", bool(self.topmost_var.get()))
         self.resizable(True, True)
         self._build_ui()
         self._update_labels()
@@ -563,7 +641,17 @@ class OverlayApp(tk.Tk):
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="CaseOh90000", font=("Segoe UI", 15, "bold")).pack(anchor="w")
         ttk.Label(outer, text="A small control panel for the copied CaseOh90000 branch. Make horses in the branch, then copy any genome you like back into your normal game by hand.", wraplength=600).pack(anchor="w", pady=(2, 4))
-        ttk.Label(outer, text=f"Branch: {self.branch}", wraplength=600).pack(anchor="w", pady=(0, 8))
+        self.vars["streamer_privacy"] = tk.BooleanVar(value=bool(self.settings.get("streamer_privacy", True)))
+        self.vars["show_file_paths"] = tk.BooleanVar(value=bool(self.settings.get("show_file_paths", False)))
+        privacy = ttk.LabelFrame(outer, text="Streaming privacy", padding=8)
+        privacy.pack(fill="x", pady=(2, 8))
+        ttk.Checkbutton(privacy, text="Hide folder paths on this panel", variable=self.vars["streamer_privacy"], command=self._refresh_privacy).pack(side="left", padx=(0, 8))
+        ttk.Checkbutton(privacy, text="Temporarily show paths", variable=self.vars["show_file_paths"], command=self._refresh_privacy).pack(side="left")
+        self._add_desc(privacy, "streamer_privacy")
+        self.branch_label_var = tk.StringVar(value="")
+        self.branch_label = ttk.Label(outer, textvariable=self.branch_label_var, wraplength=600)
+        self.branch_label.pack(anchor="w", pady=(0, 8))
+        self._refresh_privacy()
         self.status = tk.StringVar(value="Ready. Patch running game for immediate changes. Patch disk + restart for changes that load at startup.")
         ttk.Label(outer, textvariable=self.status, wraplength=600).pack(anchor="w", pady=(0, 8))
 
@@ -571,7 +659,7 @@ class OverlayApp(tk.Tk):
         window_row.pack(fill="x", pady=(0, 8))
         ttk.Button(window_row, text="Dock beside Horsey", command=self.dock_next_to_horsey).pack(side="left", padx=(0, 6))
         ttk.Checkbutton(window_row, text="Stay on top", variable=self.topmost_var, command=self.toggle_topmost).pack(side="left", padx=(0, 6))
-        ttk.Checkbutton(window_row, text="Follow Horsey", variable=self.follow_var, command=self._maybe_follow).pack(side="left", padx=(0, 6))
+        ttk.Checkbutton(window_row, text="Follow Horsey", variable=self.follow_var, command=self.toggle_follow).pack(side="left", padx=(0, 6))
         ttk.Button(window_row, text="Hide panel", command=self.toggle_panel_visibility).pack(side="left")
 
         self._build_hotkey_box(outer)
@@ -579,10 +667,14 @@ class OverlayApp(tk.Tk):
         nb = ttk.Notebook(outer)
         nb.pack(fill="both", expand=True)
         self.core_tab = Scrollable(nb); nb.add(self.core_tab, text="Main")
+        self.dna_tab = Scrollable(nb); nb.add(self.dna_tab, text="Direct DNA Editor")
+        self.gene_lab_tab = Scrollable(nb); nb.add(self.gene_lab_tab, text="SIM Gene Lab (advanced)")
         self.search_tab = Scrollable(nb); nb.add(self.search_tab, text="Experiments")
-        self.scrollables = [self.core_tab, self.search_tab]
+        self.scrollables = [self.core_tab, self.gene_lab_tab, self.dna_tab, self.search_tab]
 
         self._build_core(self.core_tab.frame)
+        self._build_gene_lab(self.gene_lab_tab.frame)
+        self._build_dna_editor(self.dna_tab.frame)
         self._build_search(self.search_tab.frame)
 
         btns = ttk.Frame(outer)
@@ -591,6 +683,20 @@ class OverlayApp(tk.Tk):
         ttk.Button(btns, text="Save to branch files", command=self.patch_disk).pack(side="left", padx=3)
         ttk.Button(btns, text="Load baseline", command=self.preset_baseline).pack(side="left", padx=3)
         ttk.Button(btns, text="Restore normal search", command=self.preset_stock_search).pack(side="left", padx=3)
+
+    def _masked_branch_text(self) -> str:
+        if bool(self.vars.get("streamer_privacy", tk.BooleanVar(value=True)).get()) and not bool(self.vars.get("show_file_paths", tk.BooleanVar(value=False)).get()):
+            return "Branch: <hidden for streaming>"
+        return f"Branch: {self.branch}"
+
+    def _refresh_privacy(self) -> None:
+        try:
+            self.branch_label_var.set(self._masked_branch_text())
+            self.settings["streamer_privacy"] = bool(self.vars.get("streamer_privacy", tk.BooleanVar(value=True)).get())
+            self.settings["show_file_paths"] = bool(self.vars.get("show_file_paths", tk.BooleanVar(value=False)).get())
+            write_settings(self.branch, self.settings)
+        except Exception:
+            pass
 
     def _build_hotkey_box(self, parent: tk.Widget) -> None:
         hot = ttk.LabelFrame(parent, text="Optional keyboard shortcut", padding=8)
@@ -719,11 +825,23 @@ class OverlayApp(tk.Tk):
             self.iconify()
 
     def on_close(self) -> None:
+        try:
+            self.settings = self._collect()
+            write_settings(self.branch, self.settings)
+        except Exception:
+            pass
         self.unregister_hotkey()
         self.destroy()
 
     def toggle_topmost(self) -> None:
         self.attributes("-topmost", bool(self.topmost_var.get()))
+        self.settings["window_topmost"] = bool(self.topmost_var.get())
+        write_settings(self.branch, self.settings)
+
+    def toggle_follow(self) -> None:
+        self.settings["window_follow"] = bool(self.follow_var.get())
+        write_settings(self.branch, self.settings)
+        self._maybe_follow()
 
     def dock_next_to_horsey(self) -> None:
         rect = find_horsey_window_rect()
@@ -787,7 +905,7 @@ class OverlayApp(tk.Tk):
         precision = ttk.LabelFrame(root, text="Display precision", padding=8)
         precision.pack(fill="x", padx=4, pady=5)
         self.vars["display_precision"] = tk.IntVar(value=int(self.settings.get("display_precision", 3)))
-        for text, val in [("T:%.1f — original", 1), ("T:%.2f", 2), ("T:%.3f — recommended", 3)]:
+        for text, val in [("T:%.1f - original", 1), ("T:%.2f", 2), ("T:%.3f - recommended", 3)]:
             ttk.Radiobutton(precision, text=text, value=val, variable=self.vars["display_precision"]).pack(anchor="w")
         self._add_desc(precision, "display_precision")
 
@@ -803,6 +921,450 @@ class OverlayApp(tk.Tk):
         ttk.Button(presets, text="Baseline: uncap only", command=self.preset_baseline).pack(side="left", padx=3)
         ttk.Button(presets, text="Reject very slow winners", command=self.preset_reject_slow).pack(side="left", padx=3)
         ttk.Label(presets, text="Use 'Reject very slow winners' only if SIM9000 starts returning huge times; it can filter slow-start outliers.", wraplength=680).pack(anchor="w", pady=(8, 0))
+
+    def _build_gene_lab(self, root: tk.Widget) -> None:
+        ttk.Label(
+            root,
+            text="SIM Gene Lab is an advanced expression-table experiment. It can be fun for branch-wide testing, but it is not the recommended way to make exact horses. Use Direct DNA Editor for precise A/T/C/G changes.",
+            wraplength=680,
+        ).pack(anchor="w", padx=4, pady=6)
+
+        box = ttk.LabelFrame(root, text="Global SIM gene profile", padding=8)
+        box.pack(fill="x", padx=4, pady=5)
+        self.vars["gene_lab_enabled"] = tk.BooleanVar(value=bool(self.settings.get("gene_lab_enabled", False)))
+        ttk.Checkbutton(box, text="Enable SIM Gene Lab profile patching", variable=self.vars["gene_lab_enabled"]).pack(anchor="w")
+        self.vars["exploding_mode"] = tk.BooleanVar(value=bool(self.settings.get("exploding_mode", False)))
+        ttk.Checkbutton(box, text="Exploding finisher mode", variable=self.vars["exploding_mode"]).pack(anchor="w", pady=(4, 0))
+        ttk.Label(box, text="Anything-goes preset: applies fast-finish SIM settings, overwrites no-glitch protections, and prepares seed DNA.", wraplength=680, foreground="#333333").pack(anchor="w", pady=(2, 0))
+        self._add_desc(box, "gene_lab_enabled")
+
+        row = ttk.Frame(box); row.pack(fill="x", pady=(8, 2))
+        ttk.Label(row, text="Species/body-plan lock", width=24).pack(side="left")
+        self.vars["species_profile"] = tk.StringVar(value=str(self.settings.get("species_profile", "Any / no species lock")))
+        ttk.OptionMenu(row, self.vars["species_profile"], self.vars["species_profile"].get(), *SPECIES_PROFILES).pack(side="left", fill="x", expand=True)
+        self._add_desc(box, "species_profile")
+
+        row = ttk.Frame(box); row.pack(fill="x", pady=(8, 2))
+        ttk.Label(row, text="Racing archetype", width=24).pack(side="left")
+        self.vars["racing_preset"] = tk.StringVar(value=str(self.settings.get("racing_preset", "None / normal genes")))
+        ttk.OptionMenu(row, self.vars["racing_preset"], self.vars["racing_preset"].get(), *RACING_PRESETS).pack(side="left", fill="x", expand=True)
+        self._add_desc(box, "racing_preset")
+
+        quick = ttk.LabelFrame(root, text="Quick archetype buttons", padding=8)
+        quick.pack(fill="x", padx=4, pady=5)
+        for label, species, race in [
+            ("Clean speed horse", "Horse", "Clean speed horse"),
+            ("Fast wheeled horse", "Alligator", "Fast wheeled horse"),
+            ("Tank / multi-wheel", "Car", "Tank / multi-wheel"),
+            ("Oval wheel roller", "Car", "Oval wheel roller"),
+            ("Living Segway", "Car", "Living Segway"),
+            ("Tail launcher", "Any / no species lock", "Tail launcher"),
+            ("Exploding finisher", "Freak / mixed", "Exploding finisher"),
+            ("Tiny car", "Tiny critter", "Tiny car"),
+            ("No-glitch intact", "Horse", "No-glitch intact racer"),
+        ]:
+            ttk.Button(quick, text=label, command=lambda sp=species, rp=race: self.preset_gene_lab(sp, rp)).pack(side="left", padx=3, pady=2)
+        ttk.Button(quick, text="Clear Gene Lab", command=self.clear_gene_lab).pack(side="left", padx=3, pady=2)
+        ttk.Button(quick, text="Copy exploding seed DNA", command=self.copy_exploding_seed).pack(side="left", padx=3, pady=2)
+
+        per = ttk.LabelFrame(root, text="Per-helix controls - test one chromosome at a time", padding=8)
+        per.pack(fill="x", padx=4, pady=5)
+        self._add_desc(per, "helix_presets")
+        self.helix_vars: Dict[str, tk.StringVar] = {}
+        hp = dict(default_gene_lab_settings()["helix_presets"])
+        hp.update(self.settings.get("helix_presets") or {})
+        for i in range(20):
+            h = f"{i:02d}"
+            row = ttk.Frame(per); row.pack(fill="x", pady=1)
+            start, end = HELIX_RANGES[h]
+            ttk.Label(row, text=f"H{h}", width=5).pack(side="left")
+            ttk.Label(row, text=f"P00-P{end-1:02d}", width=14, foreground="#555555").pack(side="left")
+            var = tk.StringVar(value=hp.get(h, "Unchanged"))
+            self.helix_vars[h] = var
+            ttk.OptionMenu(row, var, var.get(), *HELIX_PRESETS).pack(side="left", fill="x", expand=True)
+
+        status = ttk.LabelFrame(root, text="Gene Lab status", padding=8)
+        status.pack(fill="x", padx=4, pady=5)
+        ttk.Button(status, text="Show branch Gene Lab report", command=self.show_gene_lab_report).pack(side="left", padx=3)
+        ttk.Button(status, text="Restore stock genes.xml", command=self.restore_gene_lab_now).pack(side="left", padx=3)
+        ttk.Label(status, text="Saving to branch files writes data/genes.xml. Restart Horsey for these changes to load.", wraplength=680).pack(anchor="w", pady=(8, 0))
+
+
+    def _build_dna_editor(self, root: tk.Widget) -> None:
+        ttk.Label(
+            root,
+            text="Direct DNA Editor makes pasteable 40-line Horsey DNA. Expand H00-H19 to choose A/T/C/G for each gene on each strand. This is exact DNA editing, not genes.xml expression patching.",
+            wraplength=680,
+        ).pack(anchor="w", padx=4, pady=6)
+        info = ttk.LabelFrame(root, text="DNA text", padding=8)
+        info.pack(fill="x", padx=4, pady=5)
+        self._add_desc(info, "dna_editor")
+        self.dna_text = tk.Text(info, height=8, wrap="none", undo=True)
+        saved = str(self.settings.get("dna_editor_text", "") or "")
+        if saved.strip():
+            self.dna_text.insert("1.0", saved.strip())
+        self.dna_text.pack(fill="x", expand=True, pady=(6, 4))
+        self.dna_status = tk.StringVar(value="Paste DNA, load a preset, or expand a helix below.")
+        ttk.Label(info, textvariable=self.dna_status, wraplength=660).pack(anchor="w", pady=(0, 4))
+        buttons = ttk.Frame(info); buttons.pack(fill="x")
+        ttk.Button(buttons, text="Validate and load", command=self.dna_load_text_into_editor).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons, text="Update DNA text", command=self.dna_update_text_from_controls).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons, text="Copy DNA", command=self.dna_copy_text).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons, text="Save DNA text file", command=self.dna_save_to_branch).pack(side="left", padx=3, pady=2)
+        buttons2 = ttk.Frame(info); buttons2.pack(fill="x")
+        ttk.Button(buttons2, text="Paste DNA", command=self.dna_paste_clipboard).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons2, text="Paste SIM result + locks", command=self.dna_paste_apply_locks).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons2, text="Load .txt file", command=self.dna_load_file).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons2, text="Load exploding seed", command=self.dna_load_exploding_seed).pack(side="left", padx=3, pady=2)
+        ttk.Button(buttons2, text="Clear DNA to A/A", command=self.dna_clear_blank).pack(side="left", padx=3, pady=2)
+
+        preset_box = ttk.LabelFrame(root, text="Small DNA presets", padding=8)
+        preset_box.pack(fill="x", padx=4, pady=5)
+        ttk.Label(preset_box, text="Presets change a small number of visible A/T/C/G bases. You can see each edit, adjust it, or clear the locked bases later.", wraplength=660).pack(anchor="w", pady=(0, 4))
+        row = ttk.Frame(preset_box); row.pack(fill="x")
+        preset = str(self.settings.get("dna_preset", "Do not change"))
+        if preset not in DIRECT_PRESET_NAMES:
+            preset = "Do not change"
+        self.dna_preset_var = tk.StringVar(value=preset)
+        ttk.OptionMenu(row, self.dna_preset_var, self.dna_preset_var.get(), *DIRECT_PRESET_NAMES, command=lambda _=None: self.dna_save_editor_settings()).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        strand = str(self.settings.get("dna_preset_strands", "both"))
+        if strand not in {"both", "top", "bottom"}:
+            strand = "both"
+        self.dna_strand_var = tk.StringVar(value=strand)
+        ttk.OptionMenu(row, self.dna_strand_var, self.dna_strand_var.get(), "both", "top", "bottom", command=lambda _=None: self.dna_save_editor_settings()).pack(side="left", padx=(0, 6))
+        ttk.Button(row, text="Apply preset", command=self.dna_apply_direct_preset).pack(side="left")
+
+        lock_box = ttk.LabelFrame(root, text="DNA locks for SIM results", padding=8)
+        lock_box.pack(fill="x", padx=4, pady=5)
+        ttk.Label(lock_box, text="Edited bases are remembered here. Paste a new SIM result, then apply the locked bases to keep only your chosen changes.", wraplength=660).pack(anchor="w", pady=(0, 4))
+        self.dna_output_locks = normalize_dna_locks(self.settings.get("dna_output_locks", {}))
+        self.dna_lock_status = tk.StringVar(value="")
+        lock_row = ttk.Frame(lock_box); lock_row.pack(fill="x")
+        ttk.Button(lock_row, text="Apply locked bases", command=self.dna_apply_locks_to_text).pack(side="left", padx=3, pady=2)
+        ttk.Button(lock_row, text="Clear locked bases", command=self.dna_clear_locks).pack(side="left", padx=3, pady=2)
+        ttk.Label(lock_box, textvariable=self.dna_lock_status, wraplength=660, foreground="#333333").pack(anchor="w", pady=(4, 0))
+        self.dna_update_lock_status()
+
+        self.dna_editor_box = ttk.LabelFrame(root, text="Expandable helix editor H00-H19", padding=8)
+        self.dna_editor_box.pack(fill="x", padx=4, pady=5)
+        quick_open = ttk.Frame(self.dna_editor_box)
+        quick_open.pack(fill="x", pady=(0, 6))
+        ttk.Label(quick_open, text="Fast open:").pack(side="left", padx=(0, 4))
+        ttk.Button(quick_open, text="Speed H18", command=lambda: self.dna_open_helixes(["18"])).pack(side="left", padx=2)
+        ttk.Button(quick_open, text="Wheels H01/H08/H09", command=lambda: self.dna_open_helixes(["01", "08", "09"])).pack(side="left", padx=2)
+        ttk.Button(quick_open, text="Tail H07/H02", command=lambda: self.dna_open_helixes(["07", "02"])).pack(side="left", padx=2)
+        ttk.Button(quick_open, text="Timing H19", command=lambda: self.dna_open_helixes(["19"])).pack(side="left", padx=2)
+        ttk.Button(quick_open, text="Collapse all", command=self.dna_collapse_all_helixes).pack(side="right", padx=2)
+        self.dna_position_vars: Dict[Tuple[str, int, int], tk.StringVar] = {}
+        self.dna_helix_body: Dict[str, ttk.Frame] = {}
+        self.dna_helix_open: Dict[str, bool] = {}
+        self.dna_genome_cache = blank_genome("A")
+        ok, _msg, parsed = normalize_dna(saved)
+        if ok:
+            self.dna_genome_cache = parsed
+        for i in range(20):
+            h = f"{i:02d}"
+            holder = ttk.Frame(self.dna_editor_box)
+            holder.pack(fill="x", pady=2)
+            head = ttk.Frame(holder); head.pack(fill="x")
+            ttk.Button(head, text=f"Expand H{h}", width=14, command=lambda helix=h: self.dna_toggle_helix(helix)).pack(side="left", padx=(0, 6))
+            ttk.Label(head, text=f"{len(DNA_HELIX_GENE_NAMES[i])} genes", foreground="#555555").pack(side="left")
+            body = ttk.Frame(holder)
+            self.dna_helix_body[h] = body
+            self.dna_helix_open[h] = False
+
+    def dna_current_text(self) -> str:
+        return self.dna_text.get("1.0", "end").strip()
+
+    def dna_save_editor_settings(self) -> None:
+        try:
+            self.settings["dna_editor_text"] = self.dna_current_text() if hasattr(self, "dna_text") else str(self.settings.get("dna_editor_text", ""))
+            if hasattr(self, "dna_preset_var"):
+                preset = str(self.dna_preset_var.get())
+                self.settings["dna_preset"] = preset if preset in DIRECT_PRESET_NAMES else "Do not change"
+            if hasattr(self, "dna_strand_var"):
+                strand = str(self.dna_strand_var.get())
+                self.settings["dna_preset_strands"] = strand if strand in {"both", "top", "bottom"} else "both"
+            self.settings["dna_output_locks"] = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
+            write_settings(self.branch, self.settings)
+        except Exception:
+            pass
+
+    def dna_set_text(self, text: str) -> None:
+        self.dna_text.delete("1.0", "end")
+        self.dna_text.insert("1.0", text.strip())
+        self.dna_save_editor_settings()
+
+    def dna_update_lock_status(self) -> None:
+        locks = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
+        self.dna_output_locks = locks
+        count = len(locks)
+        sample = []
+        for key, base in sorted(locks.items())[:5]:
+            h, pos, strand = key.split(":")
+            side = "top" if strand == "0" else "bottom"
+            sample.append(f"H{h} P{int(pos):02d} {side}={base}")
+        suffix = "" if count <= 5 else f" + {count - 5} more"
+        text = f"{count} locked base{'s' if count != 1 else ''}"
+        if sample:
+            text += ": " + ", ".join(sample) + suffix
+        if hasattr(self, "dna_lock_status"):
+            self.dna_lock_status.set(text)
+
+    def dna_record_lock(self, helix: str, pos: int, strand: int, base: str) -> None:
+        try:
+            set_dna_lock(self.dna_output_locks, helix, pos, strand, base)
+            self.dna_update_lock_status()
+            self.dna_save_editor_settings()
+        except Exception:
+            pass
+
+    def dna_apply_locks_to_genome(self, genome: Dict[str, List[str]]) -> int:
+        self.dna_output_locks = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
+        return apply_dna_locks(genome, self.dna_output_locks)
+
+    def dna_parse_current(self, apply_locks: bool = False) -> Tuple[bool, str, Dict[str, List[str]]]:
+        ok, msg, genome = normalize_dna(self.dna_current_text())
+        changed = self.dna_apply_locks_to_genome(genome) if ok and apply_locks else 0
+        self._dna_last_lock_changes = changed
+        self.dna_status.set(msg if ok else f"DNA problem: {msg}")
+        if ok:
+            self.dna_genome_cache = genome
+            if changed:
+                self.dna_set_text(format_dna(genome))
+                self.dna_status.set(f"DNA is valid. Applied {changed} locked base{'s' if changed != 1 else ''}. Hash {dna_hash(format_dna(genome))}.")
+        return ok, msg, genome
+
+    def dna_load_text_into_editor(self, apply_locks: bool = False) -> None:
+        ok, msg, genome = self.dna_parse_current(apply_locks=apply_locks)
+        if ok:
+            self.dna_genome_cache = genome
+            self.dna_refresh_controls()
+            locked = len(getattr(self, "dna_output_locks", {}))
+            changed = int(getattr(self, "_dna_last_lock_changes", 0))
+            if changed:
+                extra = f" Applied {changed} locked base{'s' if changed != 1 else ''}. Active locks: {locked}."
+            else:
+                extra = f" Active locks: {locked}." if locked else ""
+            self.dna_status.set(f"Loaded valid DNA into editor. Hash {dna_hash(format_dna(genome))}.{extra}")
+        else:
+            messagebox.showwarning("DNA validation", msg)
+
+    def dna_refresh_controls(self) -> None:
+        for (h, pos, strand), var in getattr(self, "dna_position_vars", {}).items():
+            try:
+                var.set(self.dna_genome_cache[h][strand][pos])
+            except Exception:
+                pass
+
+    def dna_toggle_helix(self, helix: str) -> None:
+        body = self.dna_helix_body[helix]
+        if self.dna_helix_open.get(helix):
+            body.pack_forget()
+            self.dna_helix_open[helix] = False
+            return
+        if not body.winfo_children():
+            self.dna_build_helix_body(helix, body)
+        body.pack(fill="x", pady=(2, 6))
+        self.dna_helix_open[helix] = True
+        self.dna_refresh_controls()
+
+    def dna_open_helixes(self, helixes: List[str]) -> None:
+        for h in helixes:
+            if h in self.dna_helix_body and not self.dna_helix_open.get(h):
+                self.dna_toggle_helix(h)
+
+    def dna_collapse_all_helixes(self) -> None:
+        for h, body in self.dna_helix_body.items():
+            if self.dna_helix_open.get(h):
+                body.pack_forget()
+                self.dna_helix_open[h] = False
+
+    def dna_build_helix_body(self, helix: str, body: ttk.Frame) -> None:
+        header = ttk.Frame(body); header.pack(fill="x")
+        ttk.Label(header, text="Pos", width=5).pack(side="left")
+        ttk.Label(header, text="Gene", width=26).pack(side="left")
+        ttk.Label(header, text="Top", width=8).pack(side="left")
+        ttk.Label(header, text="Bottom", width=8).pack(side="left")
+        ttk.Label(header, text="Set both", width=20).pack(side="left")
+        for pos, gene in enumerate(DNA_HELIX_GENE_NAMES[int(helix)]):
+            row = ttk.Frame(body); row.pack(fill="x", pady=1)
+            ttk.Label(row, text=f"P{pos:02d}", width=5).pack(side="left")
+            ttk.Label(row, text=gene, width=26).pack(side="left")
+            for strand in (0, 1):
+                current = self.dna_genome_cache.get(helix, ["A" * DNA_HELIX_LENGTHS[helix]] * 2)[strand][pos]
+                var = tk.StringVar(value=current)
+                self.dna_position_vars[(helix, pos, strand)] = var
+                ttk.OptionMenu(row, var, var.get(), *DNA_BASES, command=lambda value, h=helix, p=pos, s=strand: self.dna_position_changed(h, p, s, value)).pack(side="left", padx=(0, 4))
+            quick = ttk.Frame(row); quick.pack(side="left")
+            for base in DNA_BASES:
+                ttk.Button(quick, text=base, width=2, command=lambda h=helix, p=pos, b=base: self.dna_set_both(h, p, b)).pack(side="left", padx=1)
+
+    def dna_set_both(self, helix: str, pos: int, base: str) -> None:
+        for strand in (0, 1):
+            var = self.dna_position_vars.get((helix, pos, strand))
+            if var:
+                var.set(base)
+            self.dna_record_lock(helix, pos, strand, base)
+        self.dna_update_text_from_controls(status=f"Locked H{helix} P{pos:02d} to {base}/{base}.")
+
+    def dna_position_changed(self, helix: str, pos: int, strand: int, base: str) -> None:
+        base = str(base or "").upper()[:1]
+        if base not in DNA_BASES:
+            return
+        self.dna_record_lock(helix, pos, strand, base)
+        side = "top" if int(strand) == 0 else "bottom"
+        self.dna_update_text_from_controls(status=f"Locked H{helix} P{pos:02d} {side} to {base}.")
+
+    def dna_update_text_from_controls(self, status: str = "") -> None:
+        ok, _msg, genome = normalize_dna(self.dna_current_text())
+        if not ok:
+            genome = self.dna_genome_cache
+        for (h, pos, strand), var in getattr(self, "dna_position_vars", {}).items():
+            seq = list(genome[h][strand])
+            base = var.get().upper()
+            if base in DNA_BASES:
+                seq[pos] = base
+            genome[h][strand] = ''.join(seq)
+        text = format_dna(genome)
+        self.dna_genome_cache = genome
+        self.dna_set_text(text)
+        self.dna_status.set(status or f"DNA text updated from editor controls. Hash {dna_hash(text)}.")
+
+    def dna_apply_direct_preset(self) -> None:
+        preset = self.dna_preset_var.get()
+        if preset == "Do not change":
+            return
+        if preset == "Exploding finisher seed":
+            self.dna_load_exploding_seed()
+            return
+        ok, _msg, genome = normalize_dna(self.dna_current_text())
+        if not ok:
+            genome = self.dna_genome_cache
+        strands = self.dna_strand_var.get()
+        changed = apply_direct_preset(genome, preset, strands=strands)
+        target_strands = [0, 1] if strands == "both" else ([0] if strands == "top" else [1])
+        for (helix, pos), base in DIRECT_PRESETS.get(preset, {}).items():
+            for strand in target_strands:
+                self.dna_record_lock(helix, pos, strand, base)
+        text = format_dna(genome)
+        self.dna_genome_cache = genome
+        self.dna_set_text(text)
+        self.dna_refresh_controls()
+        self.dna_status.set(f"Applied {preset}: {len(changed)} positions changed and locked. Hash {dna_hash(text)}.")
+
+    def dna_paste_clipboard(self) -> None:
+        try:
+            text = self.clipboard_get()
+        except Exception as e:
+            messagebox.showerror("Paste DNA", str(e))
+            return
+        self.dna_set_text(str(text).strip())
+        self.dna_load_text_into_editor(apply_locks=False)
+
+    def dna_paste_apply_locks(self) -> None:
+        try:
+            text = self.clipboard_get()
+        except Exception as e:
+            messagebox.showerror("Paste SIM result", str(e))
+            return
+        self.dna_set_text(str(text).strip())
+        self.dna_load_text_into_editor(apply_locks=True)
+
+    def dna_apply_locks_to_text(self) -> None:
+        ok, msg, genome = normalize_dna(self.dna_current_text())
+        if not ok:
+            messagebox.showwarning("Apply DNA locks", msg)
+            return
+        changed = self.dna_apply_locks_to_genome(genome)
+        text = format_dna(genome)
+        self.dna_genome_cache = genome
+        self.dna_set_text(text)
+        self.dna_refresh_controls()
+        if changed:
+            self.dna_status.set(f"Applied {changed} locked base{'s' if changed != 1 else ''}. Hash {dna_hash(text)}.")
+        else:
+            self.dna_status.set(f"No DNA bases changed; locks already match this DNA. Hash {dna_hash(text)}.")
+
+    def dna_clear_locks(self) -> None:
+        self.dna_output_locks = {}
+        self.dna_update_lock_status()
+        self.dna_save_editor_settings()
+        self.dna_status.set("Cleared DNA locks. Presets and manual edits will create new locked bases.")
+
+    def dna_copy_text(self) -> None:
+        text = self.dna_current_text()
+        ok, msg, genome = normalize_dna(text)
+        if not ok:
+            messagebox.showwarning("DNA copy", msg)
+            return
+        normalized = format_dna(genome)
+        self.clipboard_clear(); self.clipboard_append(normalized)
+        self.dna_set_text(normalized)
+        self.dna_status.set(f"Copied valid DNA to clipboard. Hash {dna_hash(normalized)}.")
+
+    def dna_save_to_branch(self) -> None:
+        text = self.dna_current_text()
+        name = f"caseoh90000_dna_{dna_hash(text)}.txt"
+        try:
+            out = write_dna_file(self.branch, text, name)
+            shown = out.name if bool(self.settings.get("streamer_privacy", True)) and not bool(self.settings.get("show_file_paths", False)) else str(out)
+            self.dna_status.set(f"Saved DNA file: {shown}")
+            messagebox.showinfo("Save DNA", f"Saved DNA file:\n{shown}")
+        except Exception as e:
+            messagebox.showerror("Save DNA", str(e))
+
+    def dna_load_file(self) -> None:
+        path = filedialog.askopenfilename(title="Load Horsey DNA text", filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+            ok, msg, genome = normalize_dna(text)
+            if not ok:
+                messagebox.showwarning("Load DNA", msg)
+                return
+            normalized = format_dna(genome)
+            self.dna_genome_cache = genome
+            self.dna_set_text(normalized)
+            self.dna_refresh_controls()
+            self.dna_status.set(f"Loaded DNA file. Hash {dna_hash(normalized)}.")
+        except Exception as e:
+            messagebox.showerror("Load DNA", str(e))
+
+    def dna_load_exploding_seed(self) -> None:
+        text = load_exploding_seed()
+        ok, msg, genome = normalize_dna(text)
+        if not ok:
+            messagebox.showerror("Exploding seed", msg)
+            return
+        normalized = format_dna(genome)
+        self.dna_genome_cache = genome
+        self.dna_set_text(normalized)
+        self.dna_refresh_controls()
+        self.dna_status.set(f"Loaded exploding finisher seed DNA. Hash {dna_hash(normalized)}.")
+
+    def dna_clear_blank(self) -> None:
+        genome = blank_genome("A")
+        text = format_dna(genome)
+        self.dna_genome_cache = genome
+        self.dna_set_text(text)
+        self.dna_refresh_controls()
+        self.dna_status.set("Cleared DNA editor to A/A on every helix position.")
+
+    def copy_exploding_seed(self) -> None:
+        try:
+            write_exploding_seed_files(self.branch)
+            ok = copy_seed_to_clipboard()
+            msg = "Exploding seed DNA written to the branch seed folder"
+            if ok:
+                msg += " and copied to clipboard."
+            else:
+                msg += ". Clipboard copy was unavailable."
+            self.status.set(msg)
+            messagebox.showinfo("Exploding seed DNA", msg)
+        except Exception as e:
+            messagebox.showerror("Exploding seed DNA", str(e))
 
     def _build_search(self, root: tk.Widget) -> None:
         self.vars["enable_search_controls"] = tk.BooleanVar(value=bool(self.settings.get("enable_search_controls", False)))
@@ -857,7 +1419,42 @@ class OverlayApp(tk.Tk):
         s["always_accept_early_finish"] = False
         s["enable_search_controls"] = bool(s.get("enable_search_controls"))
         s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
-        # Advanced float controls are intentionally hidden in v1.0; keep those values pinned to scanned originals.
+        s["gene_lab_enabled"] = bool(s.get("gene_lab_enabled", False))
+        s["exploding_mode"] = bool(s.get("exploding_mode", False))
+        if s.get("exploding_mode"):
+            s["gene_lab_enabled"] = True
+            s["species_profile"] = "Freak / mixed"
+            s["racing_preset"] = "Exploding finisher"
+        if s.get("caseoh_mode"):
+            # Easter egg mode is deliberately not stackable with the Gene Lab or experimental search controls.
+            s = normalize_settings(self.profile, s)
+        if s.get("species_profile") not in SPECIES_PROFILES:
+            s["species_profile"] = "Any / no species lock"
+        if s.get("racing_preset") not in RACING_PRESETS:
+            s["racing_preset"] = "None / normal genes"
+        if hasattr(self, "helix_vars"):
+            hp = {}
+            for h, var in self.helix_vars.items():
+                v = var.get()
+                hp[h] = v if v in HELIX_PRESETS else "Unchanged"
+            s["helix_presets"] = hp
+        s["streamer_privacy"] = bool(s.get("streamer_privacy", True))
+        s["show_file_paths"] = bool(s.get("show_file_paths", False))
+        s["window_topmost"] = bool(getattr(self, "topmost_var", tk.BooleanVar(value=False)).get())
+        s["window_follow"] = bool(getattr(self, "follow_var", tk.BooleanVar(value=False)).get())
+        # If the exploding finisher is selected, it is an anything-goes mode and
+        # should also force the SIM settings that only keep very early finishes.
+        s = apply_exploding_sim_overrides(s)
+        if hasattr(self, "dna_text"):
+            s["dna_editor_text"] = self.dna_current_text()
+        if hasattr(self, "dna_preset_var"):
+            preset = str(self.dna_preset_var.get())
+            s["dna_preset"] = preset if preset in DIRECT_PRESET_NAMES else "Do not change"
+        if hasattr(self, "dna_strand_var"):
+            strand = str(self.dna_strand_var.get())
+            s["dna_preset_strands"] = strand if strand in {"both", "top", "bottom"} else "both"
+        s["dna_output_locks"] = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
+        # Advanced float controls are intentionally hidden in HorseyGameCaseOhMod v2; keep those values pinned to scanned originals.
         for key in ADVANCED_FLOAT_KEYS:
             if key in self.profile.get("patches", {}):
                 s[key] = float(self.profile["patches"][key]["original"])
@@ -868,7 +1465,7 @@ class OverlayApp(tk.Tk):
             key = widget.key  # type: ignore[attr-defined]
             val = int(self.vars[key].get())
             if key in {"min_finish_frames", "no_progress_frames", "max_sim_frames"}:
-                text = f"{val} frames ≈ {val / 60.0:.3f}s"
+                text = f"{val} frames / {val / 60.0:.3f}s"
             elif key == "valid_result_max":
                 text = f"{val} score cutoff"
             elif key == "initial_generation_limit":
@@ -890,6 +1487,44 @@ class OverlayApp(tk.Tk):
         for key in SEARCH_KEYS:
             if key in self.vars and key in self.profile.get("patches", {}):
                 self.vars[key].set(int(self.profile["patches"][key]["original"]))
+
+    def preset_gene_lab(self, species: str, racing: str) -> None:
+        if "gene_lab_enabled" in self.vars:
+            self.vars["gene_lab_enabled"].set(True)
+        if "species_profile" in self.vars:
+            self.vars["species_profile"].set(species)
+        if "racing_preset" in self.vars:
+            self.vars["racing_preset"].set(racing)
+        for var in getattr(self, "helix_vars", {}).values():
+            var.set("Unchanged")
+        self.status.set(f"Loaded Gene Lab preset: {species} + {racing}. Save to branch files, then restart Horsey.")
+
+    def clear_gene_lab(self) -> None:
+        if "gene_lab_enabled" in self.vars:
+            self.vars["gene_lab_enabled"].set(False)
+        if "species_profile" in self.vars:
+            self.vars["species_profile"].set("Any / no species lock")
+        if "racing_preset" in self.vars:
+            self.vars["racing_preset"].set("None / normal genes")
+        for var in getattr(self, "helix_vars", {}).values():
+            var.set("Unchanged")
+        self.status.set("Gene Lab cleared. Save to branch files to restore normal genes.xml unless the Easter Egg is enabled.")
+
+    def show_gene_lab_report(self) -> None:
+        report = self.branch / "sim_gene_lab_report.json"
+        if not report.exists():
+            messagebox.showinfo("Gene Lab report", "No Gene Lab report exists yet. Save to branch files first.")
+            return
+        text = report.read_text(encoding="utf-8", errors="replace")[:6000]
+        messagebox.showinfo("Gene Lab report", text)
+
+    def restore_gene_lab_now(self) -> None:
+        try:
+            result = restore_gene_xml(self.branch)
+            self.status.set("Restored branch genes.xml from backup. Restart Horsey for this to load.")
+            messagebox.showinfo("Restore stock genes.xml", json.dumps(result, indent=2))
+        except Exception as e:
+            messagebox.showerror("Restore failed", str(e))
 
     def preset_baseline(self) -> None:
         self.vars["min_finish_frames"].set(0)
@@ -940,7 +1575,12 @@ class OverlayApp(tk.Tk):
     def patch_disk(self) -> None:
         try:
             self.settings = patch_exe_file(self.branch, self.profile, self._collect())
-            self.status.set("Patched branch EXE on disk. Restart the mod branch for disk changes to take effect.")
+            if is_exploding_requested(self.settings):
+                write_exploding_seed_files(self.branch)
+                copy_seed_to_clipboard()
+                self.status.set("Patched branch EXE on disk. Exploding seed DNA was written/copied. Restart the mod branch before testing.")
+            else:
+                self.status.set("Patched branch EXE on disk. Restart the mod branch for disk changes to take effect.")
         except Exception as e:
             messagebox.showerror("Patch failed", str(e))
 
@@ -952,12 +1592,16 @@ class OverlayApp(tk.Tk):
             if not self.settings.get("enable_search_controls"):
                 for key in SEARCH_KEYS:
                     self.settings[key] = int(original(self.profile, key, self.settings.get(key, 0)))
-            apply_caseoh_mode(self.branch, bool(self.settings.get("caseoh_mode", False)))
+            apply_gene_stack(self.branch, self.settings)
             write_settings(self.branch, self.settings)
-            if self.settings.get("caseoh_mode"):
-                msg += "\ncaseOh mOde updated on disk; restart Horsey for the Easter Egg to load."
+            if is_exploding_requested(self.settings):
+                write_exploding_seed_files(self.branch)
+                copy_seed_to_clipboard()
+                msg += "\nExploding finisher active: fast-finish SIM settings applied, seed DNA written/copied, and Gene Lab changes were written. Restart Horsey before testing this preset."
+            elif self.settings.get("gene_lab_enabled") or self.settings.get("caseoh_mode"):
+                msg += "\nGene Lab changes were written to genes.xml; restart Horsey for those to load. If the Easter Egg is checked, it overrides other profile/search settings."
             else:
-                msg += "\ncaseOh mOde disabled on disk if a backup existed; restart Horsey for the change to load."
+                msg += "\nGene Lab disabled; branch genes.xml restored to stock unless the Easter Egg is enabled."
             self.status.set(msg)
         except Exception as e:
             messagebox.showerror("Live patch failed", str(e))

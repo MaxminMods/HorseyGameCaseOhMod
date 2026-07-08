@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""caseOh mOde support for the CaseOh90000 local mod branch.
+"""Easter Egg support for the CaseOh90000 local mod branch.
 
-CaseOh90000 keeps the surprise/easter-egg presentation and retuned the phenotype
-patch so it concentrates on stomach/body/limb scale instead of spreading across
-head, tail, hat, antler, face, and other unrelated shape genes.
-
-The patch is branch-only and reversible. Disabling restores the exact backup.
+Branch-only and reversible. The public UI intentionally does not describe what
+this toggle does.
 """
 from __future__ import annotations
 
@@ -15,52 +12,92 @@ import json
 import shutil
 import xml.etree.ElementTree as ET
 
-# caseOh target list.
-#
-# Design goal from testing feedback:
-#   - keep the working SIM9000 mechanics unchanged;
-#   - make the gag phenotype more obvious;
-#   - force stomach/body/limb scale strongly upward;
-#   - leave most other traits variable so each result still has surprise/variety.
-#
-# Values here intentionally go beyond the vanilla allele max for the core body /
-# stomach / limb genes. An earlier caseOh test merely flattened each target gene
-# to its normal maximum, which was funny but not dramatic enough.
-#
-# The mode field controls how alleles are rewritten:
-#   explicit = set every allele to the listed target value
-#   min      = set every allele to the original minimum value
-#   max      = set every allele to the original maximum value
+# Easter Egg target list. Kept intentionally terse.
 CASEOH_TARGETS: Dict[str, Dict[str, Any]] = {
-    # Core body / torso / stomach.
-    "SIZE": {"mode": "explicit", "value": 220},
-    "GIANT_DWARF": {"mode": "explicit", "value": 220},
-    "SKINNY": {"mode": "explicit", "value": 35},
-    "CHEST_BIG": {"mode": "explicit", "value": 180},
-    "CHEST_SMALL": {"mode": "explicit", "value": 130},
-    "GUT": {"mode": "explicit", "value": 180},
-    "DERRIERE": {"mode": "explicit", "value": 160},
 
-    # Limb scale. Avoid locomotion timing/strength genes so fast SIM builds can
-    # still emerge naturally from the genome search.
-    "LEG_LENGTH": {"mode": "explicit", "value": 190},
-    "LEG_STRETCH": {"mode": "explicit", "value": 28},
-    "LEG_STRETCH2": {"mode": "explicit", "value": 32},
-    "LEG_PENCIL": {"mode": "explicit", "value": 0},
+    "SIZE": {"mode": "max"},
+    "GIANT_DWARF": {"mode": "max"},
+    "SKINNY": {"mode": "min"},
+    "ASPECT": {"mode": "max"},
+    "CHEST_BIG": {"mode": "max"},
+    "CHEST_SMALL": {"mode": "min"},
+    "GUT": {"mode": "max"},
+    "DERRIERE": {"mode": "max"},
+    "BONES": {"mode": "max"},
+    "BONES2": {"mode": "max"},
+    "OSTODERM": {"mode": "max"},
+    "OSTO_SIZE": {"mode": "max"},
 
-    "ARM_LENGTH": {"mode": "explicit", "value": 190},
-    "ARM_STRETCH": {"mode": "explicit", "value": 28},
-    "ARM_STRETCH2": {"mode": "explicit", "value": 32},
-    "ARM_NODE_SCALE": {"mode": "explicit", "value": 190},
+    "LEG_COUNT": {"mode": "max"},
+    "LEG_LENGTH": {"mode": "max"},
+    "LEG_STRETCH": {"mode": "max"},
+    "LEG_STRETCH2": {"mode": "max"},
+    "LEG_PENCIL": {"mode": "min"},
+    "LEG_HAS_FOOT": {"mode": "max"},
+    "HAS_FOOT": {"mode": "max"},
+    "FOOT_SIZE": {"mode": "max"},
+    "FOOT_CLOWN": {"mode": "max"},
+    "FOOT_THICKNESS": {"mode": "max"},
+    "FOOT_TOE": {"mode": "max"},
 
-    # Extremities count as limb size, but existence/count/type stay variable.
-    "FOOT_SIZE": {"mode": "explicit", "value": 80},
-    "FOOT_CLOWN": {"mode": "explicit", "value": 80},
-    "FOOT_THICKNESS": {"mode": "explicit", "value": 70},
-    "FOOT_TOE": {"mode": "explicit", "value": 160},
-    "HAND_WIDTH": {"mode": "explicit", "value": 70},
-    "HAND_LENGTH": {"mode": "explicit", "value": 80},
-    "HAND_FINGER": {"mode": "explicit", "value": 180},
+    "ARM_LENGTH": {"mode": "max"},
+    "ARM_STRETCH": {"mode": "max"},
+    "ARM_STRETCH2": {"mode": "max"},
+    "ARM_NODE_SCALE": {"mode": "max"},
+    "ARM_HAS_HAND": {"mode": "max"},
+    "HAS_HAND": {"mode": "max"},
+    "HAND_WIDTH": {"mode": "max"},
+    "HAND_LENGTH": {"mode": "max"},
+    "HAND_FINGER": {"mode": "max"},
+
+    "NECK_LENGTH": {"mode": "max"},
+    "NECK_GIRAFFE": {"mode": "max"},
+    "NECK_THICKNESS": {"mode": "max"},
+    "NECK_ONTOP": {"mode": "max"},
+    "NECK_SLOUCH": {"mode": "max"},
+    "HEAD_SIZE": {"mode": "max"},
+    "HEAD_GIANT": {"mode": "max"},
+    "HEAD_SHRUNK": {"mode": "min"},
+    "HEAD_X_GROWTH": {"mode": "max"},
+    "HEAD_Y_GROWTH": {"mode": "max"},
+    "HEAD_ASPECT": {"mode": "max"},
+    "HEAD_SQUARE": {"mode": "max"},
+    "HEAD_THICK_SKULL": {"mode": "max"},
+    "BUGEYE": {"mode": "max"},
+    "EYEBOX_SIZE": {"mode": "max"},
+    "EYE_SIZE": {"mode": "max"},
+    "PUPIL_SIZE": {"mode": "max"},
+    "BROW_SIZE": {"mode": "max"},
+    "EAR_SIZE": {"mode": "max"},
+    "EAR_ASPECT": {"mode": "max"},
+    "EAR_X": {"mode": "max"},
+    "EAR_FLOP": {"mode": "max"},
+    "MOUTH_SIZE": {"mode": "max"},
+    "NOSE_SIZE": {"mode": "max"},
+    "NOSE_Y": {"mode": "max"},
+
+    "TAIL_EXISTS": {"mode": "max"},
+    "TAIL_SIZE": {"mode": "max"},
+    "TAIL_SHORT": {"mode": "min"},
+    "TAIL_ASPECT": {"mode": "max"},
+    "TAIL_SEGMENTS": {"mode": "max"},
+    "TAIL_BOTTOM": {"mode": "max"},
+    "HAS_ANTLERS": {"mode": "max"},
+    "ANTLER_W": {"mode": "max"},
+    "ANTLER_H": {"mode": "max"},
+    "ANTLER_TAPER": {"mode": "max"},
+    "ANTLER_POM": {"mode": "max"},
+    "ANTLER_SCALEH": {"mode": "max"},
+    "ANTLER_SCALEW": {"mode": "max"},
+    "ANTLER_T1": {"mode": "max"},
+    "ANTLER_T2": {"mode": "max"},
+    "HAT_EXISTS": {"mode": "max"},
+    "HAT_SIZE": {"mode": "max"},
+    "HAT_ASPECT": {"mode": "max"},
+    "HAT_TAPER": {"mode": "max"},
+    "HAT_POM": {"mode": "max"},
+    "HAT_BACK_SCALE": {"mode": "max"},
+    "HAT_FRONT_SCALE": {"mode": "max"},
 }
 
 # Compatibility alias for older imports/status wording.
@@ -156,7 +193,7 @@ def apply_caseoh_mode(branch: Path, enabled: bool) -> Dict[str, Any]:
     report = {
         "enabled": True,
         "patched": True,
-        "version": "CaseOh90000-1.0",
+        "version": "CaseOh90000-1.3-easter-egg",
         "patched_gene_count": patched,
         "missing_gene_count": len(missing),
     }

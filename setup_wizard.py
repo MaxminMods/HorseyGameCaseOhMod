@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-run setup and safe launcher for CaseOh90000 v1.0.
+"""First-run setup and safe launcher for CaseOh90000 v1.5.
 
 The wizard stores user-selected paths in CaseOh90000_paths.json so the BAT files
 and the CaseOh90000 panel do not need hardcoded local paths.
@@ -229,7 +229,7 @@ Write-Output $link
         return False
 
 def cmd_setup(args: argparse.Namespace) -> int:
-    print("CaseOh90000 v1.0 — setup wizard")
+    print("HorseyGameCaseOhMod v2 - setup wizard")
     print("This does not patch your normal Steam install. It creates a separate mod branch.\n")
 
     existing = load_config(required=False)
@@ -240,15 +240,29 @@ def cmd_setup(args: argparse.Namespace) -> int:
     branch = prompt_path("2) Where should the modded branch live/run from? This folder will be created or rebuilt.", guessed_branch, must_have_exe=False)
     validate_paths(source, branch)
 
+    default_privacy = bool(existing.get("streamer_privacy", True))
+    answer = input(f"Hide full folder paths in the panel for streaming? [{'Y/n' if default_privacy else 'y/N'}]\n> ").strip().lower()
+    if answer in {"", "y", "yes"}:
+        streamer_privacy = True
+    elif answer in {"n", "no"}:
+        streamer_privacy = False
+    else:
+        streamer_privacy = default_privacy
+
     cfg = {
         "source": str(source.resolve()),
         "branch": str(branch.resolve()),
         "created_at": existing.get("created_at") or datetime.now().isoformat(timespec="seconds"),
+        "streamer_privacy": streamer_privacy,
     }
     save_config(cfg)
     print(f"\nSaved config:\n  {config_path()}")
-    print(f"Normal game folder:\n  {source.resolve()}")
-    print(f"Mod branch folder:\n  {branch.resolve()}\n")
+    if streamer_privacy:
+        print("Folder paths are hidden in the panel by default for streaming.")
+        print("Use the panel's 'Temporarily show paths' checkbox only when you are not live.\n")
+    else:
+        print(f"Normal game folder:\n  {source.resolve()}")
+        print(f"Mod branch folder:\n  {branch.resolve()}\n")
 
     if args.make_shortcut is None:
         answer = input("Create a desktop shortcut that refreshes from the latest normal save and starts the mod? [Y/n]\n> ").strip().lower()
@@ -381,7 +395,7 @@ def cmd_slow_filter(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="CaseOh90000 v1.0 setup/config wizard")
+    p = argparse.ArgumentParser(description="HorseyGameCaseOhMod v2 setup/config wizard")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("setup", help="choose game and mod branch folders")
@@ -410,8 +424,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("open-branch", help="open configured branch folder").set_defaults(func=cmd_open_branch)
     sub.add_parser("open-tool", help="open this tool folder").set_defaults(func=cmd_open_tool)
     sub.add_parser("apply-baseline", help="apply the proven baseline uncap to the configured branch").set_defaults(func=cmd_apply_baseline)
-    sub.add_parser("caseoh-on", help="enable caseOh mOde on the configured branch").set_defaults(func=cmd_caseoh_on)
-    sub.add_parser("caseoh-off", help="disable caseOh mOde on the configured branch").set_defaults(func=cmd_caseoh_off)
+    sub.add_parser("caseoh-on", help="enable Easter Egg on the configured branch").set_defaults(func=cmd_caseoh_on)
+    sub.add_parser("caseoh-off", help="disable Easter Egg on the configured branch").set_defaults(func=cmd_caseoh_off)
     sub.add_parser("slow-filter", help="apply the optional reject-slow-winners filter to the configured branch").set_defaults(func=cmd_slow_filter)
     return p
 
