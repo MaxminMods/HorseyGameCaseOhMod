@@ -1,5 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-py -3 setup_wizard.py restore
+call "%~dp0CaseOh90000_FIND_PYTHON.bat"
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+%CASEOH_PY% setup_wizard.py restore
 pause

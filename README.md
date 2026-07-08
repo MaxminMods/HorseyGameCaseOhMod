@@ -14,6 +14,8 @@ Most players only need this file first:
 
 In the release zip, the top level is intentionally simple: this start file and this README are the only two files you need to look at first. The rest of the app lives inside the `HorseyGameCaseOhMod` folder.
 
+You need Python 3 with Tkinter installed for the setup window and panel. If the window does not open, install Python 3 from [python.org](https://www.python.org/downloads/) and enable `Add python.exe to PATH` during install.
+
 The setup wizard asks for:
 
 1. your normal Horsey Game folder, the one with `Horsey.exe`;
