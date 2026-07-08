@@ -1,0 +1,42 @@
+# Python cache/build output
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# CaseOh90000 local user config and generated scan data
+CaseOh90000_paths.json
+scan_profile_from_configured_install.json
+scan_profile_from_your_install.json
+caseoh90000_config.json
+*.log
+*.tmp
+
+# Local copied branches / game installs / saves - NEVER COMMIT THESE
+CaseOh90000_BRANCH*/
+*CaseOh90000*BRANCH*/
+Horsey Game/
+save/
+data/
+sound/
+Horsey.exe
+steam_appid.txt
+*.dat
+*.dat.prev
+*.bak
+
+# Release/build artifacts
+build/
+dist/
+*.spec
+*.zip
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

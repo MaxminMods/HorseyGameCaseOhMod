@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-CaseOh90000 v1.0 Mod Branch Tool
+CaseOh90000 v1.6.1 Mod Branch Tool
 
 Creates and patches a COPY of Horsey Game. It never redistributes game files and
 keeps Horsey.exe.original in the mod branch for restore.
 
-v1.0 philosophy:
+v1.6.1 philosophy:
 - Keep the proven effective behavior by default: remove the 5.0s barrier and improve
   displayed precision only.
 - Expose SIM9000 search/optimizer knobs, but leave them at stock unless the user
@@ -13,7 +13,7 @@ v1.0 philosophy:
 - If experimental search controls are disabled, CaseOh90000 writes those search bytes back
   to stock/original values when patching, so it can recover from a too-aggressive
   over-tuned branch.
-- Add optional caseOh mOde as a reversible branch-only easter egg toggle.
+- Add an optional branch-only Easter Egg toggle.
 """
 from __future__ import annotations
 
@@ -26,7 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from caseoh import apply_caseoh_mode
+from sim_gene_profiles import apply_gene_stack, restore_gene_xml, default_gene_lab_settings, SPECIES_PROFILES, RACING_PRESETS, force_caseoh_override_settings
+from exploding_seed import apply_exploding_sim_overrides, is_exploding_requested, write_exploding_seed_files
 
 STEAM_APPID = "3602570"
 DEFAULT_SOURCE = r"C:\Program Files (x86)\Steam\steamapps\common\Horsey Game"
@@ -335,7 +336,7 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
         )
 
     return {
-        "tool_version": "CaseOh90000-1.0",
+        "tool_version": "CaseOh90000-1.6.1",
         "exe": str(exe),
         "image_base": image_base,
         "sections": [s.__dict__ for s in sections],
@@ -394,6 +395,7 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "display_precision": 3,
         "always_accept_early_finish": False,
         "caseoh_mode": False,
+        "exploding_mode": False,
         "no_progress_frames": int(original(profile, "no_progress_frames", 300)),
         "max_sim_frames": int(original(profile, "max_sim_frames", 10800)),
         "valid_result_max": int(original(profile, "valid_result_max", 10000)),
@@ -412,6 +414,27 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "invalid_score_sentinel": float(original(profile, "invalid_score_sentinel", 20000.0)),
     }
 
+
+
+
+def apply_caseoh_sim_overrides(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply the branch-only Easter Egg SIM override."""
+    s = force_caseoh_override_settings(settings)
+    if bool(s.get("caseoh_mode", False)):
+        # Easter Egg-specific SIM behavior.
+        s["min_finish_frames"] = 600
+        s["display_precision"] = 3
+        s["no_progress_frames"] = 840
+        s["max_sim_frames"] = 840
+        s["valid_result_max"] = 30000
+        s["display_time_divisor"] = 6.0
+        s["enable_search_controls"] = True
+        s["initial_generation_limit"] = 4
+        s["initial_genepool_size"] = 24
+        s["sim_work_per_ui_update"] = 3000
+        s["elite_parent_percent"] = 50
+        s["min_generation_for_disk"] = 1
+    return s
 
 def write_profile(branch: Path, profile: Dict[str, Any]) -> None:
     (branch / "sim9000_mod_profile.json").write_text(json.dumps(profile, indent=2), encoding="utf-8")
@@ -445,6 +468,16 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     s["always_accept_early_finish"] = bool(s.get("always_accept_early_finish", False))
     s["enable_search_controls"] = bool(s.get("enable_search_controls", False))
     s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
+    s["exploding_mode"] = bool(s.get("exploding_mode", False))
+    defaults_gl = default_gene_lab_settings()
+    s["gene_lab_enabled"] = bool(s.get("gene_lab_enabled", defaults_gl["gene_lab_enabled"]))
+    if s.get("species_profile") not in SPECIES_PROFILES:
+        s["species_profile"] = defaults_gl["species_profile"]
+    if s.get("racing_preset") not in RACING_PRESETS:
+        s["racing_preset"] = defaults_gl["racing_preset"]
+    hp = dict(defaults_gl["helix_presets"])
+    hp.update(s.get("helix_presets") or {})
+    s["helix_presets"] = hp
     s["initial_generation_limit"] = max(1, int(s.get("initial_generation_limit", original(profile, "initial_generation_limit", 16))))
     gp = max(4, int(s.get("initial_genepool_size", original(profile, "initial_genepool_size", 40))))
     s["initial_genepool_size"] = max(4, (gp // 4) * 4)
@@ -454,6 +487,8 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     for key in ADVANCED_FLOAT_KEYS:
         if key in s:
             s[key] = float(s[key])
+    s = apply_caseoh_sim_overrides(profile, s)
+    s = apply_exploding_sim_overrides(s)
     return s
 
 
@@ -554,7 +589,7 @@ def cmd_make_branch(args: argparse.Namespace) -> None:
     settings = default_settings(profile)
     if not args.no_patch:
         settings = apply_values_to_exe(exe, profile, settings)
-    apply_caseoh_mode(branch, bool(settings.get("caseoh_mode", False)))
+    apply_gene_stack(branch, settings)
     write_settings(branch, settings)
     print(f"branch={branch}")
     print("created CaseOh90000 mod branch and wrote steam_appid.txt")
@@ -602,7 +637,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
     if args.disable_search_controls:
         settings["enable_search_controls"] = False
 
-    # v1.0 keeps the stable baseline branch behavior fixed; the old core toggle is not exposed.
+    # v1.4 keeps the stable baseline branch behavior fixed; the old core toggle is not exposed.
     settings["always_accept_early_finish"] = False
 
     if getattr(args, "caseoh_mode", False):
@@ -610,11 +645,28 @@ def cmd_apply(args: argparse.Namespace) -> None:
     if getattr(args, "no_caseoh_mode", False) or getattr(args, "disable_caseoh_mode", False):
         settings["caseoh_mode"] = False
 
+    if getattr(args, "enable_gene_lab", False):
+        settings["gene_lab_enabled"] = True
+    if getattr(args, "disable_gene_lab", False):
+        settings["gene_lab_enabled"] = False
+    if getattr(args, "species_profile", None):
+        settings["species_profile"] = args.species_profile
+    if getattr(args, "racing_preset", None):
+        settings["racing_preset"] = args.racing_preset
+    if getattr(args, "exploding_mode", False):
+        settings["exploding_mode"] = True
+        settings["gene_lab_enabled"] = True
+        settings["species_profile"] = "Freak / mixed"
+        settings["racing_preset"] = "Exploding finisher"
+
     settings = apply_values_to_exe(exe, profile, settings)
-    caseoh_result = apply_caseoh_mode(branch, bool(settings.get("caseoh_mode", False)))
+    caseoh_result = apply_gene_stack(branch, settings)
+    if is_exploding_requested(settings):
+        seed = write_exploding_seed_files(branch)
+        print("Exploding finisher seed DNA written:", seed.get("dna_file"))
     write_settings(branch, settings)
     print(f"patched {exe}")
-    print("caseOh:", json.dumps(caseoh_result))
+    print("Easter Egg:", json.dumps(caseoh_result))
     print(json.dumps(settings, indent=2))
 
 
@@ -626,14 +678,14 @@ def cmd_restore(args: argparse.Namespace) -> None:
         raise FileNotFoundError(backup)
     shutil.copy2(backup, exe)
     try:
-        apply_caseoh_mode(branch, False)
+        restore_gene_xml(branch)
         profile = read_branch_profile(branch)
         settings = load_settings(branch, profile)
         settings["caseoh_mode"] = False
         write_settings(branch, settings)
-        print("caseOh mOde disabled / branch data restored when backup exists")
+        print("Easter Egg disabled / branch data restored when backup exists")
     except Exception as e:
-        print(f"warning: could not restore caseOh genes.xml: {e}")
+        print(f"warning: could not restore Easter Egg genes.xml: {e}")
     print(f"restored {exe} from {backup}")
 
 
@@ -648,7 +700,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def build_argparser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="CaseOh90000 v1.0 local mod branch tool")
+    ap = argparse.ArgumentParser(description="CaseOh90000 v1.6.1 local mod branch tool")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scan", help="scan an executable and print/write patch points")
@@ -670,8 +722,13 @@ def build_argparser() -> argparse.ArgumentParser:
     s.add_argument("--max-sim-frames", type=int, default=None)
     s.add_argument("--valid-result-max", type=int, default=None)
     s.add_argument("--display-precision", type=int, choices=[1, 2, 3], default=None)
-    s.add_argument("--caseoh-mode", action="store_true", help="enable caseOh mOde easter egg")
-    s.add_argument("--no-caseoh-mode", "--disable-caseoh-mode", dest="no_caseoh_mode", action="store_true", help="disable caseOh mOde and restore branch data file from backup")
+    s.add_argument("--caseoh-mode", action="store_true", help="enable Easter Egg")
+    s.add_argument("--no-caseoh-mode", "--disable-caseoh-mode", dest="no_caseoh_mode", action="store_true", help="disable Easter Egg and restore branch data file from backup")
+    s.add_argument("--enable-gene-lab", action="store_true", help="enable SIM Gene Lab species/racing profile patching")
+    s.add_argument("--disable-gene-lab", action="store_true", help="disable SIM Gene Lab and restore stock genes.xml except Easter Egg if enabled")
+    s.add_argument("--species-profile", choices=SPECIES_PROFILES, default=None)
+    s.add_argument("--racing-preset", choices=RACING_PRESETS, default=None)
+    s.add_argument("--exploding-mode", action="store_true", help="enable exploding finisher mode")
     s.add_argument("--enable-search-controls", action="store_true")
     s.add_argument("--disable-search-controls", action="store_true")
     s.add_argument("--initial-generation-limit", type=int, default=None)

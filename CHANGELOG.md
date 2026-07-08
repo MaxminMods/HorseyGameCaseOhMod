@@ -1,0 +1,32 @@
+# Changelog
+
+## Unreleased - UI memory and partial Direct DNA locks
+
+- Panel choices are now saved when the window closes, including presets that were selected but not yet patched.
+- Direct DNA preset and strand choices are restored on the next open.
+- Direct DNA edits and presets now create partial base locks.
+- Added a one-click "Paste SIM result + apply locks" flow for injecting only the locked A/T/C/G positions into a new result DNA.
+
+## v1.6.1 — Clean/fast Direct DNA Editor pass
+
+- Moved Direct DNA Editor before the advanced SIM Gene Lab tab.
+- Added fast-open buttons for common helix groups: speed core, wheels, tail, and timing.
+- Added Collapse all for the expanded helix editor.
+- Kept helix controls lazy-loaded so the panel opens quickly.
+- Added stronger automated tests for DNA parsing, preset output, branch scan/apply, and release hygiene.
+
+
+## v1.6.0 - Direct DNA Editor
+
+- Adds a Direct DNA Editor tab.
+- Lets users expand helixes H00-H19.
+- Lets users choose A/T/C/G for each gene position on each strand.
+- Adds transparent DNA presets that edit visible DNA bases instead of hidden genes.xml values.
+- Keeps the old SIM Gene Lab expression-profile system but labels it as experimental.
+- Keeps streamer privacy, exploding finisher tools, and hidden Easter Egg behavior from v1.5.
+
+## v1.5.0 - Privacy + Exploding Finisher
+
+- Adds streamer privacy/path hiding to the CaseOh90000 panel.
+- Adds exploding finisher preset and seed DNA helper.
+- Keeps caseOh mOde private as an Easter Egg.
