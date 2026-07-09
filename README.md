@@ -1,4 +1,39 @@
 # CaseOh90000
+Instructions:
+
+How The Mod Works
+The launcher runs setup_wizard.py, which finds the real Horsey install, copies it into a separate mod branch, and keeps the normal Steam install untouched. 
+
+horseymod.py scans the copied Horsey.exe for known SIM9000 byte patterns, then patches only the copied branch. It controls things like the 5-second finish barrier, SIM frame limits, generation count, race-slot count, and display precision. 
+
+CaseOh90000Panel.py is the friendly control window. Apply to running game patches the live Horsey process and now also updates the active SIM9000 state in memory, so generation/race-slot changes can work without restarting Horsey. Save to branch files writes those changes into the copied branch for later launches.
+
+dna_designer.py handles Direct DNA editing and DNA locks. sim_gene_profiles.py handles advanced genes.xml experiments. caseoh_art.py adds the branch-only garage sign art.
+
+How Vanilla SIM9000 Works
+Without mods, SIM9000 starts with a small gene pool, runs candidate horses through simulated attempts, culls bad/stuck horses, breeds from better candidates, and repeats for a limited number of generations. The default behavior is conservative: about 40 horses, 10 visible race slots, and 16 generations. It also has the old 5-second acceptance barrier, which blocks very fast results from being accepted normally.
+
+Best Strategy For Fast Horses
+Use Direct DNA as the main workflow. Let SIM9000 find a promising result, then use DNA locks to preserve useful base edits while testing small controlled changes.
+
+Good starting settings:
+Parameters:
+- Minimum accepted finish frames: 0
+- Display precision: T:%.3f
+- Valid-result score max: stock/original
+- Stall/no-progress: stock or slightly lower if results get weird
+
+Intensity:
+- Generations: 75-128
+- Horses / race slots: 152-256 horses, or 38-64 race slots
+- SIM work batches/update: higher for speed, lower if the window feels frozen
+- Elite parent percent: 20-30%
+- Earliest disk generation: keep around 9 unless intentionally testing unstable early DNA
+Best practical loop: run SIM, keep fast clean disks, compare tiny DNA changes, avoid lowering the disk generation too much, and don’t chase huge search numbers forever. More generations and more horses can help, but controlled DNA edits usually beat blindly maxing every slider. Remove old dna and combine best disk scores in the vat to further optimize them, but this does create instability. 
+
+Im still experimenting with making it leave specific genes alone, or make horses that explode intentionally, coming soonish
+
+README:
 
 CaseOh90000 is a safe-branch mod panel for **Horsey Game**.
 
