@@ -21,7 +21,6 @@ import argparse
 import json
 import shutil
 import struct
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sim_gene_profiles import apply_gene_stack, restore_gene_xml, default_gene_lab_settings, SPECIES_PROFILES, RACING_PRESETS, force_caseoh_override_settings
 from exploding_seed import apply_exploding_sim_overrides, is_exploding_requested, write_exploding_seed_files
 from caseoh_art import apply_caseoh_art, restore_caseoh_art
+from caseoh_arena import prepare_caseoh_arena_branch, restore_caseoh_arena_branch, launch_horsey_branch_with_native
 
 STEAM_APPID = "3602570"
 DEFAULT_SOURCE = r"C:\Program Files (x86)\Steam\steamapps\common\Horsey Game"
@@ -671,6 +671,11 @@ def cmd_make_branch(args: argparse.Namespace) -> None:
         apply_caseoh_art(branch)
     except Exception as e:
         print(f"warning: could not apply CaseOh90000 garage art: {e}")
+    try:
+        arena_result = prepare_caseoh_arena_branch(branch)
+        print("prepared Caseoh arena:", json.dumps(arena_result.get("features", {})))
+    except Exception as e:
+        print(f"warning: could not prepare Caseoh arena / in-game timer: {e}")
     write_settings(branch, settings)
     print(f"branch={branch}")
     print("created CaseOh90000 mod branch and wrote steam_appid.txt")
@@ -747,6 +752,11 @@ def cmd_apply(args: argparse.Namespace) -> None:
         print("CaseOh90000 garage art:", json.dumps(art_result))
     except Exception as e:
         print(f"warning: could not apply CaseOh90000 garage art: {e}")
+    try:
+        arena_result = prepare_caseoh_arena_branch(branch)
+        print("Caseoh arena:", json.dumps(arena_result.get("features", {})))
+    except Exception as e:
+        print(f"warning: could not prepare Caseoh arena / in-game timer: {e}")
     if is_exploding_requested(settings):
         seed = write_exploding_seed_files(branch)
         print("Exploding finisher seed DNA written:", seed.get("dna_file"))
@@ -762,6 +772,12 @@ def cmd_restore(args: argparse.Namespace) -> None:
     backup = branch / "Horsey.exe.original"
     if not backup.exists():
         raise FileNotFoundError(backup)
+    try:
+        arena_restore = restore_caseoh_arena_branch(branch)
+        if arena_restore.get("restored"):
+            print("Caseoh arena restored:", json.dumps(arena_restore))
+    except Exception as e:
+        print(f"warning: could not restore Caseoh arena files: {e}")
     shutil.copy2(backup, exe)
     try:
         restore_gene_xml(branch)
@@ -781,9 +797,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     exe = branch / "Horsey.exe"
     if not exe.exists():
         raise FileNotFoundError(exe)
-    (branch / "steam_appid.txt").write_text(STEAM_APPID + "\n", encoding="ascii")
-    subprocess.Popen([str(exe)], cwd=str(branch))
-    print(f"launched {exe}")
+    launch_horsey_branch_with_native(branch)
+    print(f"launched {exe} with Caseoh arena timer")
 
 
 def build_argparser() -> argparse.ArgumentParser:

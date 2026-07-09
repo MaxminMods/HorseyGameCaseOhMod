@@ -18,6 +18,8 @@
 - Apply to running game now updates the active SIM9000 state block when it can safely find it, so generation and race-slot changes can take effect without restarting Horsey.
 - The SIM9000 `G:x/total` and `R:x/total` readouts now use the live SIM state after Apply instead of a display-only counter workaround.
 - Added generated branch-only garage art: a taped CaseOh sign inside the garage.
+- Added branch-only Caseoh Arena support from the multiplayer work: in-game race timer, 40f Abandoned Track option, **The Caseoh Arena** world-map label, and **CaseohHaus** replacing Bio-Hacker.
+- Added the bundled native timer runtime used by the copied branch launcher; it is installed into the copied branch and guarded by a branch marker so it does not run against the normal Steam install.
 - First-run setup now defaults to no desktop shortcut when pressing Enter.
 - Download/release zips now open to `00_START_HERE_CaseOh90000.bat`, `01_LAUNCH_PANEL_CaseOh90000.bat`, `README.md`, and the `HorseyGameCaseOhMod/` app folder.
 - Launchers now check for a real Python 3 + Tkinter install instead of only checking that `py.exe` exists.

@@ -6,6 +6,7 @@ This repository contains **CaseOh90000**, a local safe-branch mod tool for Horse
 
 - Do not commit or include Horsey Game itself.
 - Do not commit or include `Horsey.exe`, `data/`, `sound/`, `save/`, `save*.dat`, `settings.xml`, copied branch folders, or Steam files.
+- The bundled `native/HorseyGameArenaNative.dll` is a mod runtime and is allowed; do not add native injectors, PDBs, game DLLs, or Horsey files.
 - Do not patch the user's normal Steam install directly.
 - All game modifications must happen only inside a copied branch folder created by the tool.
 - Keep streamer/privacy mode on by default when showing paths in UI.

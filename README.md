@@ -79,6 +79,17 @@ After setup, use this when you want to rebuild the branch from your newest norma
 
 The main tabs use the default order **Parameters**, **Intensity**, **Gene Lab**, **Direct DNA**, **Settings**. They can be dragged into the order you prefer, and the panel remembers that tab order when it closes.
 
+## Caseoh Arena
+
+The copied branch also gets the arena updates from the Horsey multiplayer work:
+
+- the old Abandoned Track is renamed **The Caseoh Arena**;
+- that track can run a **40 furlong** race in addition to the normal choices;
+- the in-game race timer starts/stops while you race there;
+- the old **Bio-Hacker** world-map label is renamed **CaseohHaus**.
+
+These changes are still branch-only. The mod installs its own small native timer file into the copied branch when it launches Horsey; it does not add Horsey Game, save files, or normal Steam files to this repo.
+
 ## Direct DNA Workflow
 
 1. Paste DNA, load a `.txt`, or start from a blank A/A genome.
