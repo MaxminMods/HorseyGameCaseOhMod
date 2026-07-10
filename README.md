@@ -33,6 +33,8 @@ Best practical loop: run SIM, keep fast clean disks, compare tiny DNA changes, a
 
 Im still experimenting with making it leave specific genes alone, or make horses that explode intentionally, coming soonish
 
+***Added timer and longer 40 furlong legnth to the abandoned race track***
+
 README:
 
 CaseOh90000 is a safe-branch mod panel for **Horsey Game**.
