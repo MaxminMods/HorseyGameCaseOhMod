@@ -1,22 +1,35 @@
 # Security and Safety Notes
 
-CaseOh90000 is designed as a local safe-branch tool.
+HorseyGameCaseOhMod is designed as a copied-branch tool. The normal Steam install and normal save should not be modified by normal use.
 
-## What should never be committed
+## Never Commit
 
 Do not commit or publish:
 
 - `Horsey.exe`
-- copied `Horsey Game` folders
-- `data/`, `save/`, or `sound/` copied from the game
+- copied Horsey Game folders
+- copied `data/`, `save/`, or `sound/` folders
 - `save*.dat`, `*.dat.prev`, or personal save files
-- `CaseOh90000_paths.json` because it contains local paths
-- generated branch folders
+- generated CaseOh90000 branch folders
+- local config files containing personal paths, such as `CaseOh90000_paths.json`
+- logs, temporary files, Python caches, or release zips
+- PDB/debug files or local build artifacts
 
-## User safety model
+The bundled `native/HorseyGameArenaNative.dll` is the branch-side timer runtime and is allowed in releases. It should be rebuilt without embedded local debug paths.
 
-CaseOh90000 should patch only a copied branch of the user's local Horsey Game install. The normal Steam install and normal save are not meant to be modified.
+## Privacy
 
-## Streaming privacy
+The panel hides full folder paths by default for stream privacy. First-time setup still asks for folders in a console window, so avoid running first-time setup live on stream unless you are comfortable showing those paths.
 
-The panel has streamer-path hiding enabled by default. First-time setup still asks for folders in a console, so do not run first-time setup live on stream unless you are comfortable showing those paths.
+## Release Check
+
+Before publishing a release, confirm that the zip opens to:
+
+```text
+README.md
+00_START_HERE_CaseOh90000.bat
+01_LAUNCH_PANEL_CaseOh90000.bat
+HorseyGameCaseOhMod/
+```
+
+The zip should not contain copied game files, save files, local branch folders, logs, caches, or local path config files.

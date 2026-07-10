@@ -6,7 +6,12 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $appSource = Resolve-Path (Join-Path $repoRoot "HorseyGameCaseOhMod")
 $temp = Join-Path $env:TEMP "CaseOh90000_release_build"
-if (Test-Path $temp) { Remove-Item $temp -Recurse -Force }
+$resolvedTempParent = [System.IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
+$resolvedTemp = [System.IO.Path]::GetFullPath($temp).TrimEnd('\')
+if ($resolvedTemp -ne (Join-Path $resolvedTempParent "CaseOh90000_release_build")) {
+    throw "Refusing to clear unexpected release temp folder: $resolvedTemp"
+}
+if (Test-Path $resolvedTemp) { Remove-Item -LiteralPath $resolvedTemp -Recurse -Force }
 New-Item -ItemType Directory -Path $temp | Out-Null
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
     $OutZip = "HorseyGameCaseOhMod_$Version.zip"
@@ -26,6 +31,16 @@ Get-ChildItem -Path $appSource -Force | ForEach-Object {
     foreach ($pat in $excludeFiles) { if ($_.Name -like $pat) { $skip = $true } }
     if ($skip) { return }
     Copy-Item $_.FullName -Destination $appDir -Recurse -Force
+}
+
+$internalDocs = Join-Path $appDir "docs\codex"
+if (Test-Path $internalDocs) {
+    $resolvedInternalDocs = [System.IO.Path]::GetFullPath($internalDocs)
+    $resolvedAppDir = [System.IO.Path]::GetFullPath($appDir).TrimEnd('\') + '\'
+    if (-not $resolvedInternalDocs.StartsWith($resolvedAppDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clear unexpected internal docs folder: $resolvedInternalDocs"
+    }
+    Remove-Item -LiteralPath $resolvedInternalDocs -Recurse -Force
 }
 
 Copy-Item (Join-Path $repoRoot "README.md") -Destination (Join-Path $temp "README.md") -Force

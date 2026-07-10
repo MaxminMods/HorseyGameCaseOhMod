@@ -1,8 +1,9 @@
 # Documentation
 
-Normal player instructions live in the root `README.md`.
+The root `README.md` is the main player guide and is the only README included at the top of release zips.
 
-This folder keeps supporting notes out of the main download view:
+This folder keeps supporting project notes:
 
-- `codex/` - agent handoff notes and reusable task prompts.
 - `releases/` - release notes by version.
+
+Safety and release hygiene notes live in `SECURITY.md` and `.gitignore`.

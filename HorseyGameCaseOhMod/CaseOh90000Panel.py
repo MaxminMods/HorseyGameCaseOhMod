@@ -141,9 +141,6 @@ DESCRIPTIONS = {
     "min_generation_for_disk": (
         "The earliest generation that can produce a result disk. Setting this too low can output weak DNA before the search improves."
     ),
-    "hotkey": (
-        "Optional hide/show shortcut. If Windows will not bind it on your machine, the Hide panel button does the same job."
-    ),
     "streamer_privacy": (
         "Hides full folder paths in this window so screen sharing does not reveal your Windows username or project folders."
     ),
@@ -534,49 +531,6 @@ class RECT(ctypes.Structure):
     _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG), ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
 
 
-class POINT(ctypes.Structure):
-    _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
-
-
-class MSG(ctypes.Structure):
-    _fields_ = [
-        ("hwnd", wintypes.HWND),
-        ("message", wintypes.UINT),
-        ("wParam", wintypes.WPARAM),
-        ("lParam", wintypes.LPARAM),
-        ("time", wintypes.DWORD),
-        ("pt", POINT),
-    ]
-
-
-WM_HOTKEY = 0x0312
-PM_REMOVE = 0x0001
-MOD_ALT = 0x0001
-MOD_CONTROL = 0x0002
-MOD_SHIFT = 0x0004
-MOD_WIN = 0x0008
-MOD_NOREPEAT = 0x4000
-HOTKEY_KEYS = ["F6", "F7", "F8", "F9", "F10", "F11", "F12", "G", "H", "J", "K", "Home", "End", "PageUp", "PageDown"]
-VK_BY_NAME = {
-    "Home": 0x24,
-    "End": 0x23,
-    "PageUp": 0x21,
-    "PageDown": 0x22,
-}
-
-
-def vk_from_key_name(name: str) -> int:
-    key = str(name).strip()
-    if len(key) == 1 and key.upper() in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789":
-        return ord(key.upper())
-    if key.upper().startswith("F") and key[1:].isdigit():
-        n = int(key[1:])
-        if 1 <= n <= 24:
-            return 0x70 + n - 1
-    if key in VK_BY_NAME:
-        return VK_BY_NAME[key]
-    raise ValueError(f"Unsupported hotkey key: {name!r}")
-
 if os.name == "nt":
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     EnumWindowsProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -598,15 +552,6 @@ if os.name == "nt":
     SetWindowPos = user32.SetWindowPos
     SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
     SetWindowPos.restype = wintypes.BOOL
-    RegisterHotKey = user32.RegisterHotKey
-    RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
-    RegisterHotKey.restype = wintypes.BOOL
-    UnregisterHotKey = user32.UnregisterHotKey
-    UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
-    UnregisterHotKey.restype = wintypes.BOOL
-    PeekMessageW = user32.PeekMessageW
-    PeekMessageW.argtypes = [ctypes.POINTER(MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
-    PeekMessageW.restype = wintypes.BOOL
 else:
     user32 = None
 
@@ -677,17 +622,11 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "exploding_mode": False,
         **default_gene_lab_settings(),
         # UI preferences, stored with the branch settings. These do not patch the game.
-        "hotkey_enabled": True,
-        "hotkey_ctrl": True,
-        "hotkey_alt": True,
-        "hotkey_shift": False,
-        "hotkey_win": False,
-        "hotkey_key": "G",
         "streamer_privacy": True,
         "show_file_paths": False,
         "window_topmost": False,
         "window_follow": False,
-        "window_auto_layout": True,
+        "window_auto_layout": False,
         "dna_editor_text": "",
         "dna_preset": "Do not change",
         "dna_preset_strands": "both",
@@ -724,8 +663,8 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     s["streamer_privacy"] = bool(s.get("streamer_privacy", True))
     s["show_file_paths"] = bool(s.get("show_file_paths", False))
     s["window_topmost"] = bool(s.get("window_topmost", False))
-    s["window_follow"] = bool(s.get("window_follow", False))
-    s["window_auto_layout"] = bool(s.get("window_auto_layout", True))
+    s["window_follow"] = False
+    s["window_auto_layout"] = False
     s["dna_editor_text"] = str(s.get("dna_editor_text", "") or "")
     if s.get("dna_preset") not in DIRECT_PRESET_NAMES:
         s["dna_preset"] = "Do not change"
@@ -947,33 +886,17 @@ class OverlayApp(tk.Tk):
         self.vars: Dict[str, Any] = {}
         self.scale_widgets: List[Any] = []
         self.scrollables: List[Scrollable] = []
-        self.hotkey_id = 0x4847
-        self.hotkey_registered = False
         self.title("HorseyGameCaseOhMod v2")
         self.geometry("920x760")
         self.minsize(760, 620)
         self._configure_fonts()
         self.topmost_var = tk.BooleanVar(value=bool(self.settings.get("window_topmost", False)))
-        self.follow_var = tk.BooleanVar(value=bool(self.settings.get("window_follow", False)))
-        self.auto_layout_var = tk.BooleanVar(value=bool(self.settings.get("window_auto_layout", True)))
         self.attributes("-topmost", bool(self.topmost_var.get()))
         self.resizable(True, True)
         self._build_ui()
         self._update_labels()
         self._bind_mousewheel()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self._startup_dock_attempts = 0
-        self.after(700, self._startup_dock_retry)
-        self.after(500, self.register_hotkey_from_ui)
-        self.after(120, self._poll_hotkey)
-
-    def _startup_dock_retry(self) -> None:
-        if find_horsey_window_rect(self.horsey_exe) is not None:
-            self.dock_next_to_horsey()
-            return
-        self._startup_dock_attempts += 1
-        if self._startup_dock_attempts < 12:
-            self.after(900, self._startup_dock_retry)
 
     def _configure_fonts(self) -> None:
         self.option_add("*Font", "{Segoe UI} 11")
@@ -1135,9 +1058,7 @@ class OverlayApp(tk.Tk):
         window = ttk.LabelFrame(root, text="Window", padding=10)
         window.pack(fill="x", padx=4, pady=6)
         ttk.Button(window, text="Fit side by side", command=self.dock_next_to_horsey).pack(side="left", padx=(0, 8))
-        ttk.Checkbutton(window, text="Auto fit on open", variable=self.auto_layout_var, command=self.toggle_auto_layout).pack(side="left", padx=(0, 8))
         ttk.Checkbutton(window, text="Stay on top", variable=self.topmost_var, command=self.toggle_topmost).pack(side="left", padx=(0, 8))
-        ttk.Checkbutton(window, text="Follow Horsey", variable=self.follow_var, command=self.toggle_follow).pack(side="left", padx=(0, 8))
         ttk.Button(window, text="Hide panel", command=self.toggle_panel_visibility).pack(side="left")
 
         privacy = ttk.LabelFrame(root, text="Streaming privacy", padding=10)
@@ -1145,29 +1066,6 @@ class OverlayApp(tk.Tk):
         ttk.Checkbutton(privacy, text="Hide folder paths", variable=self.vars["streamer_privacy"], command=self._refresh_privacy).pack(side="left", padx=(0, 8))
         ttk.Checkbutton(privacy, text="Temporarily show paths", variable=self.vars["show_file_paths"], command=self._refresh_privacy).pack(side="left")
         self._add_desc(privacy, "streamer_privacy")
-
-        self._build_hotkey_box(root)
-
-    def _build_hotkey_box(self, parent: tk.Widget) -> None:
-        hot = ttk.LabelFrame(parent, text="Optional keyboard shortcut", padding=10)
-        hot.pack(fill="x", padx=4, pady=6)
-        row = ttk.Frame(hot)
-        row.pack(fill="x")
-        self.vars["hotkey_enabled"] = tk.BooleanVar(value=bool(self.settings.get("hotkey_enabled", True)))
-        self.vars["hotkey_ctrl"] = tk.BooleanVar(value=bool(self.settings.get("hotkey_ctrl", True)))
-        self.vars["hotkey_alt"] = tk.BooleanVar(value=bool(self.settings.get("hotkey_alt", True)))
-        self.vars["hotkey_shift"] = tk.BooleanVar(value=bool(self.settings.get("hotkey_shift", False)))
-        self.vars["hotkey_win"] = tk.BooleanVar(value=bool(self.settings.get("hotkey_win", False)))
-        self.vars["hotkey_key"] = tk.StringVar(value=str(self.settings.get("hotkey_key", "G")))
-        ttk.Checkbutton(row, text="Enable", variable=self.vars["hotkey_enabled"]).pack(side="left", padx=(0, 8))
-        ttk.Checkbutton(row, text="Ctrl", variable=self.vars["hotkey_ctrl"]).pack(side="left")
-        ttk.Checkbutton(row, text="Alt", variable=self.vars["hotkey_alt"]).pack(side="left")
-        ttk.Checkbutton(row, text="Shift", variable=self.vars["hotkey_shift"]).pack(side="left")
-        ttk.Checkbutton(row, text="Win", variable=self.vars["hotkey_win"]).pack(side="left", padx=(0, 8))
-        ttk.OptionMenu(row, self.vars["hotkey_key"], self.vars["hotkey_key"].get(), *HOTKEY_KEYS).pack(side="left", padx=(0, 8))
-        ttk.Button(row, text="Bind / update", command=self.register_hotkey_from_ui).pack(side="left", padx=(0, 6))
-        ttk.Button(row, text="Test toggle", command=self.toggle_panel_visibility).pack(side="left")
-        ttk.Label(hot, text=DESCRIPTIONS["hotkey"], wraplength=820, foreground="#333333").pack(anchor="w", pady=(6, 0))
 
     def _render_tab_strip(self) -> None:
         for child in self.tab_strip.winfo_children():
@@ -1331,77 +1229,9 @@ class OverlayApp(tk.Tk):
                 return "break"
         return None
 
-    def _hotkey_modifiers(self) -> int:
-        mods = MOD_NOREPEAT
-        if bool(self.vars.get("hotkey_ctrl", tk.BooleanVar(value=False)).get()):
-            mods |= MOD_CONTROL
-        if bool(self.vars.get("hotkey_alt", tk.BooleanVar(value=False)).get()):
-            mods |= MOD_ALT
-        if bool(self.vars.get("hotkey_shift", tk.BooleanVar(value=False)).get()):
-            mods |= MOD_SHIFT
-        if bool(self.vars.get("hotkey_win", tk.BooleanVar(value=False)).get()):
-            mods |= MOD_WIN
-        return mods
-
-    def unregister_hotkey(self) -> None:
-        if os.name == "nt" and self.hotkey_registered:
-            try:
-                UnregisterHotKey(None, self.hotkey_id)
-            except Exception:
-                pass
-        self.hotkey_registered = False
-
-    def register_hotkey_from_ui(self) -> None:
-        self.unregister_hotkey()
-        self.settings = self._collect()
-        write_settings(self.branch, self.settings)
-        if not bool(self.vars.get("hotkey_enabled", tk.BooleanVar(value=False)).get()):
-            self.status.set("Optional keyboard shortcut disabled. Settings saved.")
-            return
-        if os.name != "nt":
-            self.status.set("Global hotkeys are only available on Windows. The panel still works normally.")
-            return
-        try:
-            key_name = str(self.vars["hotkey_key"].get())
-            vk = vk_from_key_name(key_name)
-            mods = self._hotkey_modifiers()
-            if not RegisterHotKey(None, self.hotkey_id, mods, vk):
-                self.status.set(f"Could not bind {self._hotkey_label()}. You can still use the Hide panel button.")
-                return
-            self.hotkey_registered = True
-            self.status.set(f"Optional keyboard shortcut active: {self._hotkey_label()}. Press it to hide/show the CaseOh90000 panel.")
-        except Exception as e:
-            self.status.set(f"Could not bind hotkey: {e}")
-
-    def _hotkey_label(self) -> str:
-        parts: List[str] = []
-        if bool(self.vars.get("hotkey_ctrl", tk.BooleanVar(value=False)).get()):
-            parts.append("Ctrl")
-        if bool(self.vars.get("hotkey_alt", tk.BooleanVar(value=False)).get()):
-            parts.append("Alt")
-        if bool(self.vars.get("hotkey_shift", tk.BooleanVar(value=False)).get()):
-            parts.append("Shift")
-        if bool(self.vars.get("hotkey_win", tk.BooleanVar(value=False)).get()):
-            parts.append("Win")
-        parts.append(str(self.vars.get("hotkey_key", tk.StringVar(value="G")).get()))
-        return "+".join(parts)
-
-    def _poll_hotkey(self) -> None:
-        if os.name == "nt" and self.hotkey_registered:
-            msg = MSG()
-            try:
-                while PeekMessageW(ctypes.byref(msg), None, WM_HOTKEY, WM_HOTKEY, PM_REMOVE):
-                    if int(msg.wParam) == int(self.hotkey_id):
-                        self.toggle_panel_visibility()
-            except Exception:
-                pass
-        self.after(120, self._poll_hotkey)
-
     def toggle_panel_visibility(self) -> None:
         if self.state() == "iconic":
             self.deiconify()
-            if bool(getattr(self, "follow_var", tk.BooleanVar(value=False)).get()):
-                self.dock_next_to_horsey()
             self.lift()
             self.focus_force()
             # Brief topmost pulse helps it appear above the game without making
@@ -1419,7 +1249,6 @@ class OverlayApp(tk.Tk):
             write_settings(self.branch, self.settings)
         except Exception:
             pass
-        self.unregister_hotkey()
         self.destroy()
 
     def toggle_topmost(self) -> None:
@@ -1427,32 +1256,18 @@ class OverlayApp(tk.Tk):
         self.settings["window_topmost"] = bool(self.topmost_var.get())
         write_settings(self.branch, self.settings)
 
-    def toggle_follow(self) -> None:
-        self.settings["window_follow"] = bool(self.follow_var.get())
-        write_settings(self.branch, self.settings)
-        self._maybe_follow()
-
-    def toggle_auto_layout(self) -> None:
-        self.settings["window_auto_layout"] = bool(self.auto_layout_var.get())
-        write_settings(self.branch, self.settings)
-
     def dock_next_to_horsey(self) -> None:
         result = find_horsey_window(self.horsey_exe)
         if result is None:
             self.status.set("Horsey window not found yet. Start the mod branch, then press 'Fit'.")
             return
-        _hwnd, rect = result
+        _hwnd, _rect = result
         self.update_idletasks()
-        if bool(getattr(self, "auto_layout_var", tk.BooleanVar(value=True)).get()):
-            panel_rect, horsey_rect = self._side_by_side_layout()
-            if os.name == "nt":
-                position_horsey_window(*horsey_rect, preferred_exe=self.horsey_exe)
-            self._place_panel(panel_rect)
-            self.status.set("Fit Horsey and the CaseOh90000 panel side by side.")
-        else:
-            self._dock_panel_to_horsey_rect(rect)
-            self.status.set("Docked beside Horsey. Turn on Auto fit to resize Horsey too.")
-        self._maybe_follow()
+        panel_rect, horsey_rect = self._side_by_side_layout()
+        if os.name == "nt":
+            position_horsey_window(*horsey_rect, preferred_exe=self.horsey_exe)
+        self._place_panel(panel_rect)
+        self.status.set("Fit Horsey and the CaseOh90000 panel side by side.")
 
     def _side_by_side_layout(self) -> Tuple[Tuple[int, int, int, int], Tuple[int, int, int, int]]:
         screen_w = self.winfo_screenwidth()
@@ -1484,13 +1299,6 @@ class OverlayApp(tk.Tk):
             x = max(0, left - panel_w - 10)
         y = max(0, min(top, screen_h - panel_h - 40))
         self.geometry(f"{panel_w}x{panel_h}+{x}+{y}")
-
-    def _maybe_follow(self) -> None:
-        if bool(getattr(self, "follow_var", tk.BooleanVar(value=False)).get()):
-            rect = find_horsey_window_rect(self.horsey_exe)
-            if rect is not None:
-                self._dock_panel_to_horsey_rect(rect)
-            self.after(1200, self._maybe_follow)
 
     def _add_desc(self, parent: tk.Widget, key: str, wraplength: int = 820) -> None:
         label = ttk.Label(parent, text=DESCRIPTIONS.get(key, ""), wraplength=wraplength, foreground="#333333")
@@ -2081,8 +1889,8 @@ class OverlayApp(tk.Tk):
         s["streamer_privacy"] = bool(s.get("streamer_privacy", True))
         s["show_file_paths"] = bool(s.get("show_file_paths", False))
         s["window_topmost"] = bool(getattr(self, "topmost_var", tk.BooleanVar(value=False)).get())
-        s["window_follow"] = bool(getattr(self, "follow_var", tk.BooleanVar(value=False)).get())
-        s["window_auto_layout"] = bool(getattr(self, "auto_layout_var", tk.BooleanVar(value=True)).get())
+        s["window_follow"] = False
+        s["window_auto_layout"] = False
         # If the exploding finisher is selected, it is an anything-goes mode and
         # should also force the SIM settings that only keep very early finishes.
         s = apply_exploding_sim_overrides(s)
