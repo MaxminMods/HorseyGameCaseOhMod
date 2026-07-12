@@ -89,6 +89,13 @@ SEARCH_U8 = ["elite_parent_percent", "min_generation_for_disk"]
 SEARCH_KEYS = SEARCH_I32 + SEARCH_U8
 ADVANCED_FLOAT_KEYS = ["finish_metric_threshold", "display_time_divisor", "result_score_scale", "invalid_score_sentinel"]
 DISPLAY_NUMERATOR_KEYS = ["generation_display_current"]
+LIVE_GUARDED_PATCH_LABELS = "frame budget, valid-score max, earliest disk generation, stall/cull values, display format, and startup search controls"
+VERIFY_PATCH_KEYS = ["max_sim_frames", "valid_result_max", "min_generation_for_disk"]
+VERIFY_PATCH_LABELS = {
+    "max_sim_frames": "frame budget",
+    "valid_result_max": "valid score max",
+    "min_generation_for_disk": "earliest disk generation",
+}
 WINDOW_CHROME_HEIGHT_GUESS = 40
 OLD_TAB_ORDER = ["dna", "main", "gene_lab", "search", "settings"]
 TAB_ORDER = ["main", "search", "gene_lab", "dna", "settings"]
@@ -111,11 +118,11 @@ DESCRIPTIONS = {
     ),
     "max_sim_frames": (
         "The longest a test horse is allowed to run. Lower this if SIM9000 starts handing you very slow winners. "
-        "Raising it mostly lets slow horses finish; it does not make fast horses faster."
+        "Raising it mostly lets slow horses finish; it does not make fast horses faster. Save to branch files for this startup-level value."
     ),
     "valid_result_max": (
         "A broad internal cutoff for what SIM9000 is allowed to keep. The original value is usually best. "
-        "If this is too loose, slow or strange results can slip through."
+        "If this is too loose, slow or strange results can slip through. Save to branch files for this startup-level value."
     ),
     "display_precision": (
         "How many decimals the T readout shows. Three decimals makes close results easier to compare."
@@ -139,7 +146,7 @@ DESCRIPTIONS = {
         "How much of the better population gets to parent the next generation. Lower is greedier; higher keeps more variety."
     ),
     "min_generation_for_disk": (
-        "The earliest generation that can produce a result disk. Setting this too low can output weak DNA before the search improves."
+        "The earliest generation that can produce a result disk. Setting this too low can output weak DNA before the search improves. Save to branch files for this startup-level value."
     ),
     "streamer_privacy": (
         "Hides full folder paths in this window so screen sharing does not reveal your Windows username or project folders."
@@ -427,8 +434,11 @@ def _scan_sim_state_candidates(
     return sorted(candidates.items())
 
 
-def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, Any], previous_settings: Dict[str, Any] | None = None) -> str:
-    global LAST_SIM_STATE_ADDR
+def _live_sim_target_values(
+    profile: Dict[str, Any],
+    settings: Dict[str, Any],
+    previous_settings: Dict[str, Any] | None = None,
+) -> Tuple[int, int, int, int, List[Tuple[int, int]]]:
     s = normalize_settings(profile, settings)
     if s.get("enable_search_controls"):
         target_generation_limit = int(s["initial_generation_limit"])
@@ -443,25 +453,80 @@ def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, 
         previous = normalize_settings(profile, previous_settings)
         if previous.get("enable_search_controls"):
             extra_pairs.append((int(previous["initial_generation_limit"]), int(previous["initial_genepool_size"])))
+    return target_generation_limit, target_genepool_size, original_generation_limit, original_genepool_size, extra_pairs
+
+
+def _live_sim_state_candidates(
+    h: wintypes.HANDLE,
+    profile: Dict[str, Any],
+    settings: Dict[str, Any],
+    previous_settings: Dict[str, Any] | None = None,
+) -> List[Tuple[int, Dict[str, int]]]:
+    target_generation_limit, target_genepool_size, original_generation_limit, original_genepool_size, extra_pairs = _live_sim_target_values(
+        profile,
+        settings,
+        previous_settings,
+    )
+    candidates: List[Tuple[int, Dict[str, int]]] = []
+    if LAST_SIM_STATE_ADDR is not None:
+        cached_values = _read_sim_state_values(h, LAST_SIM_STATE_ADDR)
+        if cached_values and _plausible_sim_state(cached_values, target_generation_limit, target_genepool_size):
+            candidates = [(LAST_SIM_STATE_ADDR, cached_values)]
+    if not candidates:
+        candidates = _scan_sim_state_candidates(
+            h,
+            target_generation_limit,
+            target_genepool_size,
+            original_generation_limit,
+            original_genepool_size,
+            extra_pairs,
+        )
+    return candidates
+
+
+def _sim9000_appears_active(
+    pid: int,
+    profile: Dict[str, Any],
+    settings: Dict[str, Any],
+    previous_settings: Dict[str, Any] | None = None,
+) -> Tuple[bool, str]:
+    h = OpenProcess(PROCESS_ALL_PATCH, False, pid)
+    if not h:
+        raise RuntimeError(f"OpenProcess({pid}) failed while checking SIM9000 activity: {last_error()}")
+    try:
+        candidates = _live_sim_state_candidates(h, profile, settings, previous_settings)
+    finally:
+        CloseHandle(h)
+    if not candidates:
+        return False, "no active SIM state found"
+
+    active = [
+        values for _obj, values in candidates
+        if int(values["race_current"]) > 0 or int(values["generation_current"]) > 0
+    ]
+    if not active:
+        return True, "SIM state found; guarded as active"
+    values = active[0]
+    return (
+        True,
+        f"G {values['generation_current']}/{values['generation_limit']}, "
+        f"R {values['race_current']}/{max(1, int(values['genepool_size']) // 4)}",
+    )
+
+
+def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, Any], previous_settings: Dict[str, Any] | None = None) -> str:
+    global LAST_SIM_STATE_ADDR
+    target_generation_limit, target_genepool_size, _original_generation_limit, _original_genepool_size, _extra_pairs = _live_sim_target_values(
+        profile,
+        settings,
+        previous_settings,
+    )
 
     h = OpenProcess(PROCESS_ALL_PATCH, False, pid)
     if not h:
         raise RuntimeError(f"OpenProcess({pid}) failed while updating live SIM state: {last_error()}")
     try:
-        candidates: List[Tuple[int, Dict[str, int]]] = []
-        if LAST_SIM_STATE_ADDR is not None:
-            cached_values = _read_sim_state_values(h, LAST_SIM_STATE_ADDR)
-            if cached_values and _plausible_sim_state(cached_values, target_generation_limit, target_genepool_size):
-                candidates = [(LAST_SIM_STATE_ADDR, cached_values)]
-        if not candidates:
-            candidates = _scan_sim_state_candidates(
-                h,
-                target_generation_limit,
-                target_genepool_size,
-                original_generation_limit,
-                original_genepool_size,
-                extra_pairs,
-            )
+        candidates = _live_sim_state_candidates(h, profile, settings, previous_settings)
         if not candidates:
             return "\nLive SIM state was not found yet. Apply from the world map or before starting SIM9000 if the counters do not change."
         if len(candidates) > 1:
@@ -800,25 +865,6 @@ def patch_payloads(profile: Dict[str, Any], settings: Dict[str, Any]) -> List[Tu
 
 def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
     exe = branch / "Horsey.exe"
-    data = bytearray(exe.read_bytes())
-    for key, payload in patch_payloads(profile, settings):
-        if key not in profile["patches"]:
-            continue
-        off = int(profile["patches"][key]["file_off"])
-        data[off:off + len(payload)] = payload
-    exe.write_bytes(data)
-    settings = normalize_settings(profile, settings)
-    if not settings.get("enable_search_controls"):
-        for key in SEARCH_KEYS:
-            settings[key] = int(original(profile, key, settings.get(key, 0)))
-    apply_gene_stack(branch, settings)
-    write_settings(branch, settings)
-    return settings
-
-
-
-def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
-    exe = branch / "Horsey.exe"
     if not exe.exists():
         raise FileNotFoundError(exe)
     data = bytearray(exe.read_bytes())
@@ -837,6 +883,31 @@ def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, An
     write_settings(branch, s)
     return s
 
+
+def branch_patch_verification(branch: Path, profile: Dict[str, Any], settings: Dict[str, Any]) -> str:
+    exe = branch / "Horsey.exe"
+    if not exe.exists():
+        return ""
+    try:
+        data = exe.read_bytes()
+        payloads = dict(patch_payloads(profile, dict(settings)))
+    except Exception as exc:
+        return f"\nCould not verify branch bytes: {exc}"
+    results: List[str] = []
+    for key in VERIFY_PATCH_KEYS:
+        patch = profile.get("patches", {}).get(key)
+        payload = payloads.get(key)
+        if not patch or payload is None:
+            continue
+        off = int(patch["file_off"])
+        actual = data[off:off + len(payload)]
+        label = VERIFY_PATCH_LABELS.get(key, key)
+        results.append(f"{label} {'OK' if actual == payload else 'needs save'}")
+    if not results:
+        return ""
+    return "\nVerified branch bytes: " + "; ".join(results) + "."
+
+
 def patch_running_process(
     profile: Dict[str, Any],
     settings: Dict[str, Any],
@@ -844,12 +915,20 @@ def patch_running_process(
     previous_settings: Dict[str, Any] | None = None,
 ) -> str:
     pid, base, path = find_horsey_process(preferred_exe)
-    for key, payload in patch_payloads(profile, settings):
-        if key not in profile["patches"]:
-            continue
-        addr = base + int(profile["patches"][key]["rva"])
-        write_process(pid, addr, payload)
-    msg = f"Patched running Horsey.exe pid={pid}, base={base:#x}\n{path}"
+    sim_active, sim_detail = _sim9000_appears_active(pid, profile, settings, previous_settings)
+    msg = f"Found running Horsey.exe pid={pid}, base={base:#x}\n{path}"
+    if sim_active:
+        msg += (
+            f"\nSIM9000 is active ({sim_detail}). Skipped live rewriting {LIVE_GUARDED_PATCH_LABELS} "
+            "to avoid crashing the current SIM run. Use Save to branch files for those startup-level settings."
+        )
+    else:
+        for key, payload in patch_payloads(profile, settings):
+            if key not in profile["patches"]:
+                continue
+            addr = base + int(profile["patches"][key]["rva"])
+            write_process(pid, addr, payload)
+        msg += f"\nStartup-level SIM patch bytes updated in the running game ({sim_detail})."
     msg += patch_live_sim_state(pid, profile, settings, previous_settings)
     return msg
 
@@ -2026,12 +2105,13 @@ class OverlayApp(tk.Tk):
     def patch_disk(self) -> None:
         try:
             self.settings = patch_exe_file(self.branch, self.profile, self._collect())
+            verify_msg = branch_patch_verification(self.branch, self.profile, self.settings)
             if is_exploding_requested(self.settings):
                 write_exploding_seed_files(self.branch)
                 copy_seed_to_clipboard()
-                self.status.set("Patched branch EXE on disk. Exploding seed DNA was written/copied. Restart the mod branch before testing.")
+                self.status.set("Patched branch EXE on disk. Exploding seed DNA was written/copied. Restart the mod branch before testing." + verify_msg)
             else:
-                self.status.set("Patched branch EXE on disk. Restart the mod branch for disk changes to take effect.")
+                self.status.set("Patched branch EXE on disk. Restart the mod branch for disk changes to take effect." + verify_msg)
         except Exception as e:
             messagebox.showerror("Patch failed", str(e))
 
