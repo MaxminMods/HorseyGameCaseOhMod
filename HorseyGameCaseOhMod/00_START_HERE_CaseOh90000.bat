@@ -6,5 +6,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-%CASEOH_PY% setup_wizard.py setup --run
+echo Starting HorseyGameCaseOhMod v2 easy setup...
+echo.
+%CASEOH_PY% setup_wizard.py setup --easy
 if errorlevel 1 pause

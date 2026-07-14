@@ -18,6 +18,9 @@ from typing import Any, Dict, Optional
 
 CONFIG_NAME = "CaseOh90000_paths.json"
 STEAM_DEFAULT = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Horsey Game")
+APP_ICON_REL = Path("assets") / "HorseyGameCaseOhMod.ico"
+SHORTCUT_NAME = "HorseyGameCaseOhMod v2.lnk"
+OLD_SHORTCUT_NAME = "CaseOh90000 - Latest Save.lnk"
 
 
 def tool_dir() -> Path:
@@ -26,6 +29,10 @@ def tool_dir() -> Path:
 
 def config_path() -> Path:
     return tool_dir() / CONFIG_NAME
+
+
+def app_icon_path() -> Path:
+    return tool_dir() / APP_ICON_REL
 
 
 def default_branch() -> Path:
@@ -204,17 +211,18 @@ def create_shortcut() -> bool:
         print("Desktop .lnk shortcut creation is Windows-only. The BAT file can still be run manually.")
         return False
 
-    cfg = load_config()
     target_bat = tool_dir() / "CaseOh90000_RUN_FROM_LATEST_SAVE.bat"
-    icon_source = Path(cfg.get("source", "")) / "Horsey.exe"
-    icon = str(icon_source) if icon_source.exists() else str(target_bat)
-    description = "Start CaseOh90000 from the latest normal save and open the CaseOh90000 panel"
+    icon_source = app_icon_path()
+    icon = f"{icon_source},0" if icon_source.exists() else f"{target_bat},0"
+    description = "Start HorseyGameCaseOhMod v2 from the latest normal save and open the mod panel"
 
     ps = f"""
 $ErrorActionPreference = 'Stop'
 $desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop)
 if ([string]::IsNullOrWhiteSpace($desktop)) {{ throw 'Could not resolve Desktop folder.' }}
-$link = Join-Path $desktop 'CaseOh90000 - Latest Save.lnk'
+$link = Join-Path $desktop {powershell_single_quote(SHORTCUT_NAME)}
+$oldLink = Join-Path $desktop {powershell_single_quote(OLD_SHORTCUT_NAME)}
+if ((Test-Path $oldLink) -and ($oldLink -ne $link)) {{ Remove-Item -LiteralPath $oldLink -Force }}
 $w = New-Object -ComObject WScript.Shell
 $s = $w.CreateShortcut($link)
 $s.TargetPath = $env:ComSpec
@@ -232,7 +240,7 @@ Write-Output $link
             capture_output=True,
             text=True,
         )
-        link_path = result.stdout.strip() or str(windows_desktop_path() / "CaseOh90000 - Latest Save.lnk")
+        link_path = result.stdout.strip() or str(windows_desktop_path() / SHORTCUT_NAME)
         print(f"Created desktop shortcut:\n  {link_path}")
         return True
     except Exception as e:
@@ -240,7 +248,7 @@ Write-Output $link
         # Fallback: create a visible Desktop BAT launcher in the real Desktop folder.
         desktop = windows_desktop_path()
         desktop.mkdir(parents=True, exist_ok=True)
-        fallback = desktop / "CaseOh90000 - Latest Save.bat"
+        fallback = desktop / "HorseyGameCaseOhMod v2.bat"
         fallback.write_text(
             f'@echo off\r\ncd /d "{tool_dir()}"\r\ncall "{target_bat}"\r\n',
             encoding="utf-8",
@@ -256,18 +264,31 @@ def cmd_setup(args: argparse.Namespace) -> int:
     guessed_source = Path(existing.get("source", "")) if existing.get("source") else (STEAM_DEFAULT if STEAM_DEFAULT.exists() else None)
     guessed_branch = Path(existing.get("branch", "")) if existing.get("branch") else default_branch()
 
-    source = prompt_path("1) Where is Horsey Game installed? Pick the folder that contains Horsey.exe.", guessed_source, must_have_exe=True)
-    branch = prompt_path("2) Where should the modded branch live/run from? This folder will be created or rebuilt.", guessed_branch, must_have_exe=False)
+    easy = bool(getattr(args, "easy", False))
+    if easy and guessed_source and (guessed_source / "Horsey.exe").exists():
+        source = guessed_source
+        branch = guessed_branch
+        print("Easy setup is using the recommended folders.")
+        print(f"Normal Horsey folder: {source}")
+        print(f"Mod branch folder:    {branch}\n")
+    else:
+        if easy:
+            print("Easy setup could not auto-find Horsey.exe, so it needs one folder choice.\n")
+        source = prompt_path("1) Where is Horsey Game installed? Pick the folder that contains Horsey.exe.", guessed_source, must_have_exe=True)
+        branch = prompt_path("2) Where should the modded branch live/run from? This folder will be created or rebuilt.", guessed_branch, must_have_exe=False)
     validate_paths(source, branch)
 
-    default_privacy = bool(existing.get("streamer_privacy", True))
-    answer = input(f"Hide full folder paths in the panel for streaming? [{'Y/n' if default_privacy else 'y/N'}]\n> ").strip().lower()
-    if answer in {"", "y", "yes"}:
-        streamer_privacy = True
-    elif answer in {"n", "no"}:
-        streamer_privacy = False
+    if easy:
+        streamer_privacy = bool(existing.get("streamer_privacy", True))
     else:
-        streamer_privacy = default_privacy
+        default_privacy = bool(existing.get("streamer_privacy", True))
+        answer = input(f"Hide full folder paths in the panel for streaming? [{'Y/n' if default_privacy else 'y/N'}]\n> ").strip().lower()
+        if answer in {"", "y", "yes"}:
+            streamer_privacy = True
+        elif answer in {"n", "no"}:
+            streamer_privacy = False
+        else:
+            streamer_privacy = default_privacy
 
     cfg = {
         "source": str(source.resolve()),
@@ -285,13 +306,19 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"Mod branch folder:\n  {branch.resolve()}\n")
 
     if args.make_shortcut is None:
-        answer = input("Create a desktop shortcut that refreshes from the latest normal save and starts the mod? [y/N]\n> ").strip().lower()
-        make_shortcut = answer in {"y", "yes"}
+        if easy:
+            make_shortcut = True
+        else:
+            answer = input("Create a desktop shortcut that refreshes from the latest normal save and starts the mod? [Y/n]\n> ").strip().lower()
+            make_shortcut = answer not in {"n", "no"}
     else:
         make_shortcut = args.make_shortcut
     if args.open_panel is None:
-        answer = input("Open the panel automatically when the mod starts? [Y/n]\n> ").strip().lower()
-        open_panel = answer not in {"n", "no"}
+        if easy:
+            open_panel = True
+        else:
+            answer = input("Open the panel automatically when the mod starts? [Y/n]\n> ").strip().lower()
+            open_panel = answer not in {"n", "no"}
     else:
         open_panel = args.open_panel
     cfg["open_panel_on_start"] = bool(open_panel)
@@ -301,8 +328,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
         create_shortcut()
 
     if args.run is None:
-        answer = input("Build/rebuild the mod branch from your latest normal save and run it now? [Y/n]\n> ").strip().lower()
-        do_run = answer not in {"n", "no"}
+        if easy:
+            do_run = True
+        else:
+            answer = input("Build/rebuild the mod branch from your latest normal save and run it now? [Y/n]\n> ").strip().lower()
+            do_run = answer not in {"n", "no"}
     else:
         do_run = args.run
     if do_run:
@@ -399,7 +429,7 @@ def apply_to_configured_branch(extra_args: list[str]) -> int:
 
 
 def cmd_apply_baseline(args: argparse.Namespace) -> int:
-    return apply_to_configured_branch(["--min-finish-frames", "0", "--display-precision", "3", "--disable-search-controls"])
+    return apply_to_configured_branch(["--min-finish-frames", "0", "--display-precision", "3", "--enable-search-controls"])
 
 
 def cmd_caseoh_on(args: argparse.Namespace) -> int:
@@ -411,7 +441,7 @@ def cmd_caseoh_off(args: argparse.Namespace) -> int:
 
 
 def cmd_slow_filter(args: argparse.Namespace) -> int:
-    return apply_to_configured_branch(["--min-finish-frames", "0", "--display-precision", "3", "--max-sim-frames", "1800", "--valid-result-max", "6000", "--disable-search-controls"])
+    return apply_to_configured_branch(["--min-finish-frames", "0", "--display-precision", "3", "--max-sim-frames", "1800", "--valid-result-max", "6000", "--enable-search-controls"])
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -425,6 +455,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--no-shortcut", dest="make_shortcut", action="store_false")
     s.add_argument("--panel", dest="open_panel", action="store_true", default=None)
     s.add_argument("--no-panel", dest="open_panel", action="store_false")
+    s.add_argument("--easy", action="store_true", help="use recommended defaults and only ask if Horsey.exe cannot be found")
     s.set_defaults(func=cmd_setup)
 
     sub.add_parser("show", help="show saved paths").set_defaults(func=cmd_show)

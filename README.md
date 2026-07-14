@@ -6,15 +6,17 @@ The mod does not include Horsey Game, `Horsey.exe`, game assets, or save files.
 
 ## Quick Start
 
-Extract the download, then run:
+Extract the download, then double-click:
 
 ```powershell
 .\00_START_HERE_CaseOh90000.bat
 ```
 
-The first-run setup will look for your Horsey Game install, create the copied CaseOh90000 branch, and open the panel. If you press Enter through the default choices, setup uses the detected Horsey path, keeps the default branch location, skips the desktop shortcut, and starts the panel automatically.
+Start Here uses the recommended setup automatically when it can find Horsey Game: it creates the copied CaseOh90000 branch, creates a **HorseyGameCaseOhMod v2** desktop shortcut with its own icon, starts the modded branch, and opens the panel. It only asks for help if it cannot find `Horsey.exe`.
 
-After setup, use:
+After setup, use the desktop shortcut for normal play. It refreshes from your latest normal save, starts the copied branch, and opens the panel.
+
+If you only need to reopen the panel for an already configured branch, double-click:
 
 ```powershell
 .\01_LAUNCH_PANEL_CaseOh90000.bat

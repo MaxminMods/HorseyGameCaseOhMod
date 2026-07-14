@@ -7,9 +7,9 @@ keeps Horsey.exe.original in the mod branch for restore.
 
 HorseyGameCaseOhMod v2 philosophy:
 - Keep the proven effective behavior by default: remove the 5.0s barrier and improve
-  displayed precision only.
-- Expose SIM9000 search/optimizer knobs, but leave them at stock unless the user
-  deliberately enables experimental search controls.
+  displayed precision.
+- Start with the visible SIM9000 Intensity controls enabled so fresh branches apply
+  the selected generation/race-slot values right away.
 - If experimental search controls are disabled, CaseOh90000 writes those search bytes back
   to stock/original values when patching, so it can recover from a too-aggressive
   over-tuned branch.
@@ -41,9 +41,15 @@ SIG_NO_PROGRESS = "41 81 7C 06 04 ?? ?? ?? ?? 7E 2B 48 8B 87 A0 02 00 00"
 SIG_MAX_SIM_FRAMES = "81 BF 84 02 00 00 ?? ?? ?? ?? 0F 8D 2B 03 00 00"
 SIG_VALID_RESULT_MAX = "81 B8 28 02 00 00 ?? ?? ?? ?? 7D 28"
 
-# Optional search/optimizer knobs. CaseOh90000 scans these, but stock behavior is preserved
-# until experimental search controls are enabled.
+# Optional search/optimizer knobs. CaseOh90000 scans these and restores stock
+# values when Intensity controls are disabled.
 SIG_INIT_SEARCH_BUDGETS = "C7 86 A8 06 00 00 ?? ?? ?? ?? C7 86 AC 06 00 00 ?? ?? ?? ??"
+SIG_RAM_GATED_SEARCH_BUDGETS = (
+    "BA ?? ?? ?? ?? 89 83 94 06 00 00 "
+    "B8 ?? ?? ?? ?? 0F 45 C2 "
+    "BA ?? ?? ?? ?? 89 83 A8 06 00 00 "
+    "B8 ?? ?? ?? ?? 0F 45 C2 48 8D 15 ?? ?? ?? ?? 89 83 AC 06 00 00"
+)
 SIG_SIM_WORK_PER_UI_UPDATE = "8B 45 67 FF C0 89 45 67 3D ?? ?? ?? ?? 0F 8C C3 FE FF FF"
 SIG_ELITE_PARENT_PERCENT = "44 8B 87 AC 06 00 00 41 6B C8 ?? B8 1F 85 EB 51"
 SIG_MIN_GENERATION_FOR_DISK = "44 8B 87 88 02 00 00 41 83 F8 ?? 0F 8C"
@@ -186,6 +192,7 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
     valid_max = require_one("valid result max threshold", find_pattern(data, SIG_VALID_RESULT_MAX))
 
     init_budgets = maybe_one("initial SIM9000 generation/genepool budgets", find_pattern(data, SIG_INIT_SEARCH_BUDGETS), warnings)
+    ram_budgets = maybe_one("SIM9000 RAM-gated generation/genepool budgets", find_pattern(data, SIG_RAM_GATED_SEARCH_BUDGETS), warnings)
     work_per_update = maybe_one("SIM9000 work batches per UI update", find_pattern(data, SIG_SIM_WORK_PER_UI_UPDATE), warnings)
     elite_parent = maybe_one("SIM9000 elite parent percentage", find_pattern(data, SIG_ELITE_PARENT_PERCENT), warnings)
     min_gen_disk = maybe_one("SIM9000 minimum generation before disk/result", find_pattern(data, SIG_MIN_GENERATION_FOR_DISK), warnings)
@@ -279,6 +286,39 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
             sections,
             "i32",
             read_i32(data, init_budgets + 16),
+        )
+    if ram_budgets is not None:
+        patches["ram_generation_limit_upgraded"] = make_patch_entry(
+            "ram_generation_limit_upgraded",
+            "SIM9000 RAM-upgrade generation limit used when a run resets/starts. CaseOh90000 mirrors the selected generation count here.",
+            ram_budgets + 1,
+            sections,
+            "i32",
+            read_i32(data, ram_budgets + 1),
+        )
+        patches["ram_generation_limit_base"] = make_patch_entry(
+            "ram_generation_limit_base",
+            "SIM9000 no-RAM-upgrade generation limit used when a run resets/starts. CaseOh90000 mirrors the selected generation count here.",
+            ram_budgets + 12,
+            sections,
+            "i32",
+            read_i32(data, ram_budgets + 12),
+        )
+        patches["ram_genepool_size_upgraded"] = make_patch_entry(
+            "ram_genepool_size_upgraded",
+            "SIM9000 RAM-upgrade horse pool used when a run resets/starts. CaseOh90000 mirrors the selected horse/race-slot count here.",
+            ram_budgets + 20,
+            sections,
+            "i32",
+            read_i32(data, ram_budgets + 20),
+        )
+        patches["ram_genepool_size_base"] = make_patch_entry(
+            "ram_genepool_size_base",
+            "SIM9000 no-RAM-upgrade horse pool used when a run resets/starts. CaseOh90000 mirrors the selected horse/race-slot count here.",
+            ram_budgets + 31,
+            sections,
+            "i32",
+            read_i32(data, ram_budgets + 31),
         )
     if work_per_update is not None:
         patches["sim_work_per_ui_update"] = make_patch_entry(
@@ -390,8 +430,8 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
         "warnings": warnings,
         "notes": [
             "Confirmed barrier: min_finish_frames=300; 300/60 = 5.0 seconds.",
-            "CaseOh90000 baseline: min_finish_frames=0 and T precision=3; search controls stay stock.",
-            "Experimental search controls are scanned but disabled by default because aggressive settings can produce slow/weak DNA.",
+            "HorseyGameCaseOhMod v2 defaults: min_finish_frames=0, T precision=3, and Intensity controls enabled.",
+            "Disabling Intensity controls restores the stock SIM9000 search values.",
         ],
     }
 
@@ -436,7 +476,7 @@ def original(profile: Dict[str, Any], key: str, fallback: Any) -> Any:
 
 def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        # baseline default: only remove barrier + precision.
+        # v2 default: remove the barrier, improve precision, and enable visible Intensity settings.
         "min_finish_frames": 0,
         "display_precision": 3,
         "always_accept_early_finish": False,
@@ -445,9 +485,9 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "no_progress_frames": int(original(profile, "no_progress_frames", 300)),
         "max_sim_frames": int(original(profile, "max_sim_frames", 10800)),
         "valid_result_max": int(original(profile, "valid_result_max", 10000)),
-        # Experimental search controls stay disabled by default. Values below are kept
-        # at stock so disabling experimental mode reverts them.
-        "enable_search_controls": False,
+        # Experimental search controls start enabled in v2 so fresh installs load
+        # the visible SIM9000 generation/race-slot settings right away.
+        "enable_search_controls": True,
         "initial_generation_limit": int(original(profile, "initial_generation_limit", 16)),
         "initial_genepool_size": int(original(profile, "initial_genepool_size", 40)),
         "sim_work_per_ui_update": int(original(profile, "sim_work_per_ui_update", 240)),
@@ -495,7 +535,16 @@ def read_branch_profile(branch: Path) -> Dict[str, Any]:
     exe = branch / "Horsey.exe"
     if profile_path.exists():
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
-        required = {"generation_display_limit", "race_display_limit", "generation_display_current", "race_display_current"}
+        required = {
+            "generation_display_limit",
+            "race_display_limit",
+            "generation_display_current",
+            "race_display_current",
+            "ram_generation_limit_upgraded",
+            "ram_generation_limit_base",
+            "ram_genepool_size_upgraded",
+            "ram_genepool_size_base",
+        }
         if not required.issubset(set(profile.get("patches", {}))):
             scan_target = branch / "Horsey.exe.original"
             if not scan_target.exists():
@@ -524,7 +573,7 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     if s["display_precision"] not in FMT_BY_PRECISION:
         raise ValueError("display_precision must be 1, 2, or 3")
     s["always_accept_early_finish"] = bool(s.get("always_accept_early_finish", False))
-    s["enable_search_controls"] = bool(s.get("enable_search_controls", False))
+    s["enable_search_controls"] = bool(s.get("enable_search_controls", True))
     s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
     s["exploding_mode"] = bool(s.get("exploding_mode", False))
     defaults_gl = default_gene_lab_settings()
@@ -628,6 +677,16 @@ def apply_values_to_exe(exe: Path, profile: Dict[str, Any], settings: Dict[str, 
 
     for key in SEARCH_KEYS_I32:
         write_i32(key, int(search_values[key]))
+    if s.get("enable_search_controls", False):
+        write_i32("ram_generation_limit_upgraded", int(search_values["initial_generation_limit"]))
+        write_i32("ram_generation_limit_base", int(search_values["initial_generation_limit"]))
+        write_i32("ram_genepool_size_upgraded", int(search_values["initial_genepool_size"]))
+        write_i32("ram_genepool_size_base", int(search_values["initial_genepool_size"]))
+    else:
+        write_i32("ram_generation_limit_upgraded", int(original(profile, "ram_generation_limit_upgraded", original(profile, "initial_generation_limit", 16))))
+        write_i32("ram_generation_limit_base", int(original(profile, "ram_generation_limit_base", 8)))
+        write_i32("ram_genepool_size_upgraded", int(original(profile, "ram_genepool_size_upgraded", original(profile, "initial_genepool_size", 40))))
+        write_i32("ram_genepool_size_base", int(original(profile, "ram_genepool_size_base", 20)))
     for key in SEARCH_KEYS_U8:
         write_u8(key, int(search_values[key]))
     write_generation_display(int(search_values["initial_generation_limit"]), bool(s.get("enable_search_controls", False)))
@@ -681,7 +740,7 @@ def cmd_make_branch(args: argparse.Namespace) -> None:
     print("created CaseOh90000 mod branch and wrote steam_appid.txt")
     print("copied the source game folder, including the current save folder, into the branch")
     if not args.no_patch:
-        print("applied CaseOh90000 baseline: min_finish_frames=0, display T:%.3f, search controls stock")
+        print("applied HorseyGameCaseOhMod v2 defaults: min_finish_frames=0, display T:%.3f, Intensity controls enabled")
     else:
         print("no patch applied yet")
 

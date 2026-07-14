@@ -45,10 +45,23 @@ FURLONG40_RECT = (458, 172, 52, 10)
 CASEOH_ARENA_SIGN_RECT = (335, 395, 81, 14)
 CASEOH_ARENA_SIGN_BOUNDS = (335, 394, 83, 17)
 CASEOH_ARENA_SIGN_TEXT = "CASEOH ARENA"
+DISTANCE_TABLE_FILE_OFF = 0x309B0C
+DISTANCE_LEA_FILE_OFF = 0x2CE0B
+RESTART_STATE_OFFSETS = (0x2D727, 0x336D0)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 OGG_SIGNATURE = b"OggS"
 RACE_MUSIC_TARGET_SECONDS = 600.0
 RACE_MUSIC_FILES = ("Music_TheBigRace.ogg", "Music_TheBigRace2.ogg")
+
+SELECTOR_MODULO4_SIG = bytes.fromhex(
+    "8B 83 5C 02 00 00 FF C0 25 03 00 00 80 7D 07 FF C8 83 C8 FC FF C0"
+)
+SELECTOR_MODULO5_PATCH = bytes.fromhex(
+    "8B 83 5C 02 00 00 FF C0 33 D2 B9 05 00 00 00 F7 F1 8B C2 90 90 90"
+)
+DISTANCE_LEA_ORIGINAL = bytes.fromhex("48 8D 0D 16 58 2D 00")
+STATE4_ASSIGNMENT = bytes.fromhex("48 C7 83 50 02 00 00 04 00 00 00")
+STATE5_ASSIGNMENT = bytes.fromhex("48 C7 83 50 02 00 00 05 00 00 00")
 
 Color = Tuple[int, int, int, int]
 
@@ -175,6 +188,107 @@ def patch_branch_save_labels(branch: Path) -> Dict[str, Any]:
         report["files"].append(patch_label_file(save, replacements, ".caseoh_arena_labels.bak"))
     if not report["files"]:
         report["files"].append({"path": str(save_dir), "changes": [{"name": "save_labels", "status": "no_save_dat_files"}]})
+    return report
+
+
+def find_all_bytes(data: bytes | bytearray, needle: bytes) -> List[int]:
+    hits: List[int] = []
+    start = 0
+    while True:
+        off = data.find(needle, start)
+        if off < 0:
+            return hits
+        hits.append(off)
+        start = off + 1
+
+
+def pe_file_to_rva(data: bytes | bytearray, file_off: int) -> int:
+    if data[:2] != b"MZ":
+        raise RuntimeError("Horsey.exe is not a PE/MZ executable.")
+    peoff = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[peoff:peoff + 4] != b"PE\0\0":
+        raise RuntimeError("Horsey.exe has an invalid PE signature.")
+    coff = peoff + 4
+    _machine, section_count, _stamp, _symbols, _symbol_count, opt_size, _flags = struct.unpack_from("<HHIIIHH", data, coff)
+    section0 = coff + 20 + opt_size
+    for index in range(section_count):
+        off = section0 + 40 * index
+        vsize, rva, raw_size, raw = struct.unpack_from("<IIII", data, off + 8)
+        if raw <= file_off < raw + max(raw_size, 1):
+            return rva + (file_off - raw)
+    raise RuntimeError(f"File offset {file_off:#x} is outside the Horsey.exe PE sections.")
+
+
+def pack_f32_table(values: Tuple[float, float, float, float, float]) -> bytes:
+    return struct.pack("<5f", *values)
+
+
+def patch_caseoh_arena_race_selector(branch: Path) -> Dict[str, Any]:
+    exe = branch / "Horsey.exe"
+    report: Dict[str, Any] = {"path": str(exe), "changes": []}
+    if not exe.exists():
+        report["changes"].append({"name": "race_selector", "status": "missing_horsey_exe"})
+        return report
+
+    data = bytearray(exe.read_bytes())
+    changed = False
+
+    patched_hits = find_all_bytes(data, SELECTOR_MODULO5_PATCH)
+    if len(patched_hits) == 1:
+        report["changes"].append({"name": "selector_modulo", "status": "already_patched"})
+    else:
+        hits = find_all_bytes(data, SELECTOR_MODULO4_SIG)
+        if len(hits) == 1:
+            data[hits[0]:hits[0] + len(SELECTOR_MODULO5_PATCH)] = SELECTOR_MODULO5_PATCH
+            changed = True
+            report["changes"].append({"name": "selector_modulo", "status": "patched"})
+        else:
+            report["changes"].append({"name": "selector_modulo", "status": "not_found", "matches": len(hits)})
+
+    for off in RESTART_STATE_OFFSETS:
+        current = bytes(data[off:off + len(STATE4_ASSIGNMENT)])
+        if current == STATE4_ASSIGNMENT:
+            report["changes"].append({"name": f"restart_state_{off:x}", "status": "already_vanilla"})
+        elif current == STATE5_ASSIGNMENT:
+            data[off:off + len(STATE4_ASSIGNMENT)] = STATE4_ASSIGNMENT
+            changed = True
+            report["changes"].append({"name": f"restart_state_{off:x}", "status": "repaired"})
+        else:
+            report["changes"].append({"name": f"restart_state_{off:x}", "status": "unknown_signature"})
+
+    table = pack_f32_table((25.0, 37.0, 60.0, 120.0, 12.0))
+    old_table_a = pack_f32_table((25.0, 37.0, 60.0, 12.0, 120.0))
+    old_table_b = pack_f32_table((25.0, 37.0, 60.0, 12.0, 1200.0))
+    current_table = bytes(data[DISTANCE_TABLE_FILE_OFF:DISTANCE_TABLE_FILE_OFF + len(table)])
+    if current_table == table:
+        report["changes"].append({"name": "distance_table", "status": "already_patched"})
+    elif current_table in {old_table_a, old_table_b, bytes(len(table))}:
+        data[DISTANCE_TABLE_FILE_OFF:DISTANCE_TABLE_FILE_OFF + len(table)] = table
+        changed = True
+        report["changes"].append({"name": "distance_table", "status": "patched"})
+    else:
+        report["changes"].append({"name": "distance_table", "status": "unknown_signature"})
+
+    table_rva = pe_file_to_rva(data, DISTANCE_TABLE_FILE_OFF)
+    lea_rva = pe_file_to_rva(data, DISTANCE_LEA_FILE_OFF)
+    disp = table_rva - (lea_rva + len(DISTANCE_LEA_ORIGINAL))
+    if not -(2 ** 31) <= disp < 2 ** 31:
+        report["changes"].append({"name": "distance_table_pointer", "status": "out_of_range"})
+    else:
+        new_lea = bytes.fromhex("48 8D 0D") + struct.pack("<i", int(disp))
+        current_lea = bytes(data[DISTANCE_LEA_FILE_OFF:DISTANCE_LEA_FILE_OFF + len(new_lea)])
+        if current_lea == new_lea:
+            report["changes"].append({"name": "distance_table_pointer", "status": "already_patched"})
+        elif current_lea == DISTANCE_LEA_ORIGINAL:
+            data[DISTANCE_LEA_FILE_OFF:DISTANCE_LEA_FILE_OFF + len(new_lea)] = new_lea
+            changed = True
+            report["changes"].append({"name": "distance_table_pointer", "status": "patched"})
+        else:
+            report["changes"].append({"name": "distance_table_pointer", "status": "unknown_signature"})
+
+    if changed:
+        ensure_backup(exe, ".caseoh_arena_runtime.bak")
+        exe.write_bytes(data)
     return report
 
 
@@ -621,6 +735,7 @@ def prepare_caseoh_arena_branch(branch: Path) -> Dict[str, Any]:
         },
         "native_runtime": install_native_runtime(branch),
         "branch_exe_labels": patch_branch_exe_labels(branch),
+        "branch_exe_race_selector": patch_caseoh_arena_race_selector(branch),
         "branch_save_labels": patch_branch_save_labels(branch),
     }
     try:
@@ -648,6 +763,7 @@ def restore_caseoh_arena_branch(branch: Path) -> Dict[str, Any]:
     branch = validate_branch(branch)
     restored: List[str] = []
     for rel, suffix in [
+        (Path("Horsey.exe"), ".caseoh_arena_runtime.bak"),
         (Path("Horsey.exe"), ".caseoh_arena_labels.bak"),
         (SPRITE_XML, ".caseoh_arena.bak"),
         (SPRITE_PNG, ".caseoh_arena.bak"),

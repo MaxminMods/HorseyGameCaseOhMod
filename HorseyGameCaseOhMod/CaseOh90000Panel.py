@@ -62,9 +62,11 @@ PROCESS_VM_WRITE = 0x0020
 PROCESS_VM_OPERATION = 0x0008
 PROCESS_ALL_PATCH = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION
 TH32CS_SNAPPROCESS = 0x00000002
+TH32CS_SNAPTHREAD = 0x00000004
 TH32CS_SNAPMODULE = 0x00000008
 TH32CS_SNAPMODULE32 = 0x00000010
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+THREAD_SUSPEND_RESUME = 0x0002
 PAGE_EXECUTE_READWRITE = 0x40
 PAGE_READWRITE = 0x04
 MEM_COMMIT = 0x1000
@@ -198,6 +200,14 @@ class MODULEENTRY32W(ctypes.Structure):
     ]
 
 
+class THREADENTRY32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ThreadID", wintypes.DWORD),
+        ("th32OwnerProcessID", wintypes.DWORD), ("tpBasePri", wintypes.LONG), ("tpDeltaPri", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
 class MEMORY_BASIC_INFORMATION(ctypes.Structure):
     _fields_ = [
         ("BaseAddress", ctypes.c_void_p),
@@ -221,6 +231,12 @@ if os.name == "nt":
     Process32NextW = kernel32.Process32NextW
     Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
     Process32NextW.restype = wintypes.BOOL
+    Thread32First = kernel32.Thread32First
+    Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+    Thread32First.restype = wintypes.BOOL
+    Thread32Next = kernel32.Thread32Next
+    Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(THREADENTRY32)]
+    Thread32Next.restype = wintypes.BOOL
     Module32FirstW = kernel32.Module32FirstW
     Module32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MODULEENTRY32W)]
     Module32FirstW.restype = wintypes.BOOL
@@ -230,6 +246,15 @@ if os.name == "nt":
     OpenProcess = kernel32.OpenProcess
     OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     OpenProcess.restype = wintypes.HANDLE
+    OpenThread = kernel32.OpenThread
+    OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    OpenThread.restype = wintypes.HANDLE
+    SuspendThread = kernel32.SuspendThread
+    SuspendThread.argtypes = [wintypes.HANDLE]
+    SuspendThread.restype = wintypes.DWORD
+    ResumeThread = kernel32.ResumeThread
+    ResumeThread.argtypes = [wintypes.HANDLE]
+    ResumeThread.restype = wintypes.DWORD
     ReadProcessMemory = kernel32.ReadProcessMemory
     ReadProcessMemory.argtypes = [wintypes.HANDLE, wintypes.LPCVOID, wintypes.LPVOID, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
     ReadProcessMemory.restype = wintypes.BOOL
@@ -345,6 +370,45 @@ def write_process_i32(h: wintypes.HANDLE, addr: int, value: int) -> None:
     VirtualProtectEx(h, ctypes.c_void_p(addr), 4, old.value, ctypes.byref(tmp))
 
 
+def _process_thread_ids(pid: int) -> List[int]:
+    snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
+    if snap == INVALID_HANDLE_VALUE:
+        raise RuntimeError(f"CreateToolhelp32Snapshot thread failed: {last_error()}")
+    tids: List[int] = []
+    try:
+        te = THREADENTRY32(); te.dwSize = ctypes.sizeof(te)
+        ok = Thread32First(snap, ctypes.byref(te))
+        while ok:
+            if int(te.th32OwnerProcessID) == int(pid):
+                tids.append(int(te.th32ThreadID))
+            ok = Thread32Next(snap, ctypes.byref(te))
+    finally:
+        CloseHandle(snap)
+    return tids
+
+
+def _suspend_process_threads(pid: int) -> List[wintypes.HANDLE]:
+    suspended: List[wintypes.HANDLE] = []
+    for tid in _process_thread_ids(pid):
+        h_thread = OpenThread(THREAD_SUSPEND_RESUME, False, tid)
+        if not h_thread:
+            continue
+        previous_count = SuspendThread(h_thread)
+        if previous_count == 0xFFFFFFFF:
+            CloseHandle(h_thread)
+            continue
+        suspended.append(h_thread)
+    if not suspended:
+        raise RuntimeError("Could not pause Horsey threads for a safe live SIM update.")
+    return suspended
+
+
+def _resume_thread_handles(handles: List[wintypes.HANDLE]) -> None:
+    for h_thread in reversed(handles):
+        ResumeThread(h_thread)
+        CloseHandle(h_thread)
+
+
 def _read_sim_state_values(h: wintypes.HANDLE, obj: int) -> Dict[str, int] | None:
     data = read_process_memory(h, obj, SIM_STATE_SCAN_SIZE)
     if data is None or len(data) < SIM_STATE_SCAN_SIZE:
@@ -383,11 +447,12 @@ def _scan_sim_state_candidates(
     extra_pairs: List[Tuple[int, int]] | None = None,
 ) -> List[Tuple[int, Dict[str, int]]]:
     candidates: Dict[int, Dict[str, int]] = {}
-    pair_needles = {(int(original_generation_limit), int(original_genepool_size))}
+    pair_needles = {
+        (int(original_generation_limit), int(original_genepool_size)),
+        (int(target_generation_limit), int(target_genepool_size)),
+    }
     for gen_limit, pool_size in extra_pairs or []:
         pair_needles.add((int(gen_limit), int(pool_size)))
-    if not extra_pairs:
-        pair_needles.add((int(target_generation_limit), int(target_genepool_size)))
 
     def add_candidate(obj: int) -> None:
         if obj in candidates or obj % 16 != 0:
@@ -449,6 +514,9 @@ def _live_sim_target_values(
     original_generation_limit = int(original(profile, "initial_generation_limit", 16))
     original_genepool_size = int(original(profile, "initial_genepool_size", 40))
     extra_pairs: List[Tuple[int, int]] = []
+    base_generation_limit = int(original(profile, "ram_generation_limit_base", 8))
+    base_genepool_size = int(original(profile, "ram_genepool_size_base", 20))
+    extra_pairs.append((base_generation_limit, base_genepool_size))
     if previous_settings:
         previous = normalize_settings(profile, previous_settings)
         if previous.get("enable_search_controls"):
@@ -540,9 +608,16 @@ def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, 
             else:
                 return "\nLive SIM state was ambiguous, so the active SIM limits were not changed."
         obj, before = candidates[0]
-        write_process_i32(h, obj + SIM_GENERATION_LIMIT_OFFSET, target_generation_limit)
-        write_process_i32(h, obj + SIM_GENEPOOL_SIZE_OFFSET, target_genepool_size)
-        after = _read_sim_state_values(h, obj) or before
+        suspended_threads = _suspend_process_threads(pid)
+        try:
+            before = _read_sim_state_values(h, obj) or before
+            if not _plausible_sim_state(before, target_generation_limit, target_genepool_size):
+                return "\nLive SIM state changed while applying, so this update was skipped safely. Press Apply again."
+            write_process_i32(h, obj + SIM_GENERATION_LIMIT_OFFSET, target_generation_limit)
+            write_process_i32(h, obj + SIM_GENEPOOL_SIZE_OFFSET, target_genepool_size)
+            after = _read_sim_state_values(h, obj) or before
+        finally:
+            _resume_thread_handles(suspended_threads)
     finally:
         CloseHandle(h)
     LAST_SIM_STATE_ADDR = int(obj)
@@ -570,7 +645,16 @@ def read_profile(branch: Path) -> Dict[str, Any]:
     if not p.exists():
         raise FileNotFoundError(f"Missing {p}. Run 00_START_HERE_CaseOh90000.bat to create or refresh the mod branch first.")
     profile = json.loads(p.read_text(encoding="utf-8"))
-    required = {"generation_display_limit", "race_display_limit", "generation_display_current", "race_display_current"}
+    required = {
+        "generation_display_limit",
+        "race_display_limit",
+        "generation_display_current",
+        "race_display_current",
+        "ram_generation_limit_upgraded",
+        "ram_generation_limit_base",
+        "ram_genepool_size_upgraded",
+        "ram_genepool_size_base",
+    }
     if not required.issubset(set(profile.get("patches", {}))):
         scan_target = branch / "Horsey.exe.original"
         if not scan_target.exists():
@@ -673,7 +757,7 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "no_progress_frames": int(original(profile, "no_progress_frames", 300)),
         "max_sim_frames": int(original(profile, "max_sim_frames", 10800)),
         "valid_result_max": int(original(profile, "valid_result_max", 10000)),
-        "enable_search_controls": False,
+        "enable_search_controls": True,
         "initial_generation_limit": int(original(profile, "initial_generation_limit", 16)),
         "initial_genepool_size": int(original(profile, "initial_genepool_size", 40)),
         "sim_work_per_ui_update": int(original(profile, "sim_work_per_ui_update", 240)),
@@ -723,7 +807,7 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     s["valid_result_max"] = max(1, int(s["valid_result_max"]))
     s["display_precision"] = int(s["display_precision"])
     s["always_accept_early_finish"] = False
-    s["enable_search_controls"] = bool(s.get("enable_search_controls"))
+    s["enable_search_controls"] = bool(s.get("enable_search_controls", True))
     s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
     s["streamer_privacy"] = bool(s.get("streamer_privacy", True))
     s["show_file_paths"] = bool(s.get("show_file_paths", False))
@@ -850,6 +934,16 @@ def patch_payloads(profile: Dict[str, Any], settings: Dict[str, Any]) -> List[Tu
 
     for key in SEARCH_I32:
         add_i32(key, search_values[key])
+    if s.get("enable_search_controls"):
+        add_i32("ram_generation_limit_upgraded", search_values["initial_generation_limit"])
+        add_i32("ram_generation_limit_base", search_values["initial_generation_limit"])
+        add_i32("ram_genepool_size_upgraded", search_values["initial_genepool_size"])
+        add_i32("ram_genepool_size_base", search_values["initial_genepool_size"])
+    else:
+        add_i32("ram_generation_limit_upgraded", int(original(profile, "ram_generation_limit_upgraded", original(profile, "initial_generation_limit", 16))))
+        add_i32("ram_generation_limit_base", int(original(profile, "ram_generation_limit_base", 8)))
+        add_i32("ram_genepool_size_upgraded", int(original(profile, "ram_genepool_size_upgraded", original(profile, "initial_genepool_size", 40))))
+        add_i32("ram_genepool_size_base", int(original(profile, "ram_genepool_size_base", 20)))
     for key in SEARCH_U8:
         add_u8(key, search_values[key])
     add_generation_display(search_values["initial_generation_limit"], bool(s.get("enable_search_controls")))
@@ -965,7 +1059,15 @@ class OverlayApp(tk.Tk):
         self.vars: Dict[str, Any] = {}
         self.scale_widgets: List[Any] = []
         self.scrollables: List[Scrollable] = []
+        self._live_patch_running = False
+        self.live_apply_button: tk.Button | None = None
         self.title("HorseyGameCaseOhMod v2")
+        icon_path = Path(__file__).resolve().parent / "assets" / "HorseyGameCaseOhMod.ico"
+        if icon_path.exists():
+            try:
+                self.iconbitmap(default=str(icon_path))
+            except Exception:
+                pass
         self.geometry("920x760")
         self.minsize(760, 620)
         self._configure_fonts()
@@ -1110,6 +1212,8 @@ class OverlayApp(tk.Tk):
                 borderwidth=2,
             )
             button.grid(row=0, column=index, sticky="ew", padx=4, pady=2)
+            if text == "Apply to running game":
+                self.live_apply_button = button
             stripe = tk.Frame(bar, bg=color, height=4)
             stripe.grid(row=1, column=index, sticky="ew", padx=4, pady=(0, 2))
 
@@ -1882,7 +1986,7 @@ class OverlayApp(tk.Tk):
             messagebox.showerror("Exploding seed DNA", str(e))
 
     def _build_search(self, root: tk.Widget) -> None:
-        self.vars["enable_search_controls"] = tk.BooleanVar(value=bool(self.settings.get("enable_search_controls", False)))
+        self.vars["enable_search_controls"] = tk.BooleanVar(value=bool(self.settings.get("enable_search_controls", True)))
         box = ttk.LabelFrame(root, text="Experimental master switch", padding=8)
         box.pack(fill="x", padx=4, pady=6)
         ttk.Checkbutton(box, text="Enable experimental search-control patching", variable=self.vars["enable_search_controls"]).pack(anchor="w")
@@ -2116,6 +2220,12 @@ class OverlayApp(tk.Tk):
             messagebox.showerror("Patch failed", str(e))
 
     def patch_live(self) -> None:
+        if self._live_patch_running:
+            self.status.set("Apply is already working. It will unlock as soon as the current update finishes.")
+            return
+        self._live_patch_running = True
+        if self.live_apply_button is not None:
+            self.live_apply_button.configure(state="disabled", text="Applying...")
         try:
             previous_settings = dict(self.settings)
             self.settings = self._collect()
@@ -2142,6 +2252,10 @@ class OverlayApp(tk.Tk):
             self.status.set(msg)
         except Exception as e:
             messagebox.showerror("Live patch failed", str(e))
+        finally:
+            self._live_patch_running = False
+            if self.live_apply_button is not None:
+                self.live_apply_button.configure(state="normal", text="Apply to running game")
 
 
 def main() -> int:
