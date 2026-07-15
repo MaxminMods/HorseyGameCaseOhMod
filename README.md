@@ -1,32 +1,48 @@
-# HorseyGameCaseOhMod v2
+# HorseyGameCaseOhMod 3.0
 
-HorseyGameCaseOhMod v2 is a local branch mod panel for **Horsey Game**. It copies your game into a separate CaseOh90000 branch, applies the mod there, and keeps your normal Steam install and normal save separate.
+HorseyGameCaseOhMod 3.0 is a local mod panel for **Horsey Game**. It creates a separate CaseOh parallel dimension, applies the mod there, and keeps your normal Steam install separate.
 
-The mod does not include Horsey Game, `Horsey.exe`, game assets, or save files.
+This download does not include Horsey Game, `Horsey.exe`, game assets, or save files.
 
-## Quick Start
+## Install
 
-Extract the download, then double-click:
+1. Extract the zip.
+2. Close normal Horsey Game if it is open.
+3. Double-click:
 
 ```powershell
 .\00_START_HERE_CaseOh90000.bat
 ```
 
-Start Here uses the recommended setup automatically when it can find Horsey Game: it creates the copied CaseOh90000 branch, creates a **HorseyGameCaseOhMod v2** desktop shortcut with its own icon, starts the modded branch, and opens the panel. It only asks for help if it cannot find `Horsey.exe`.
+Start Here automatically uses the recommended setup when it can find Horsey Game. It creates the CaseOh parallel dimension, copies your current normal save into it, hides folder paths in the panel for streaming, starts CaseOh Horsey, and opens the panel.
 
-After setup, use the desktop shortcut for normal play. It refreshes from your latest normal save, starts the copied branch, and opens the panel.
+If Horsey cannot be found automatically, it will ask you to pick the folder that contains `Horsey.exe`.
 
-If you only need to reopen the panel for an already configured branch, double-click:
+## Run Each Time
+
+First close all other running copies of normal or modded Horsey.
+
+After setup, run the mod with the desktop shortcut or:
+
+```powershell
+.\02_PLAY_CASEOH_HORSEY.bat
+```
+
+This opens the existing CaseOh parallel dimension. It does not rebuild the folder, so horses, disks, and saves made in the CaseOh dimension stay there.
+
+To reopen only the panel without starting Horsey:
 
 ```powershell
 .\01_LAUNCH_PANEL_CaseOh90000.bat
 ```
 
-Use this when you want to rebuild the copied branch from your latest normal save, launch Horsey, and open the panel:
+### Save Safety
 
-```powershell
-.\HorseyGameCaseOhMod\CaseOh90000_RUN_FROM_LATEST_SAVE.bat
-```
+- Normal Horsey and the CaseOh parallel dimension have separate saves.
+- First install copies your current normal save into the CaseOh dimension.
+- Normal play should use the desktop shortcut or `02_PLAY_CASEOH_HORSEY.bat`.
+- Only use `HorseyGameCaseOhMod\CaseOh90000_RUN_FROM_LATEST_SAVE.bat` if you intentionally want to rebuild the CaseOh dimension from your latest normal save.
+- Rebuilding from the latest normal save can replace progress made inside the CaseOh dimension, so copy out any important DNA first.
 
 ## Requirements
 
@@ -36,93 +52,81 @@ Use this when you want to rebuild the copied branch from your latest normal save
 
 If the setup window or panel does not open, install Python 3 from [python.org](https://www.python.org/downloads/) and enable **Add python.exe to PATH** during installation.
 
-## Main Features
+## Main Tabs
 
-- **Parameters** removes the old 5-second SIM9000 acceptance barrier, improves time display precision, and keeps the proven baseline easy to restore.
-- **Intensity** controls optional SIM9000 search depth, generation count, horse count, and race-slot count.
-- **Direct DNA** creates and edits normal 40-line Horsey DNA with exact `A`, `T`, `C`, and `G` base choices.
-- **DNA locks** let you preserve selected base edits while applying them to newly pasted SIM results.
-- **Gene Lab** edits branch `genes.xml` expression values for advanced experiments.
-- **Settings** keeps window, privacy, and layout options out of the main workflow.
-- The panel remembers window options, tab order, Direct DNA text, selected presets, strand choices, and active DNA locks.
+The first two tabs are the main everyday controls.
 
-## Recommended Workflow
+### Parameters
 
-Use Direct DNA as the main workflow.
+- **Minimum accepted finish frames**: set to `0` for the CaseOh baseline. This removes the old 5-second SIM9000 acceptance barrier.
+- **Stall/no-progress cull frames**: how long SIM9000 lets a stuck test keep trying. Lower values clear bad attempts faster; higher values let strange slow attempts continue.
+- **Maximum candidate frame budget**: the longest a test horse can run. Raising this does not make horses faster; it only gives slow candidates more time to finish.
+- **Valid-result score max**: the broad internal result filter. The original value is usually safest.
+- **Display precision**: `T:%.3f` shows more timing detail.
 
-1. Run SIM9000 until you get a promising disk.
-2. Paste or load that DNA in the Direct DNA tab.
-3. Make small base edits or apply a preset.
-4. Use DNA locks to keep only the bases you intentionally changed.
-5. Paste a fresh SIM result and apply the locks.
-6. Copy or save the finished DNA back into the copied branch.
+### Intensity
 
-This is usually more useful than simply maxing every SIM9000 setting. Bigger searches can help, but controlled DNA edits make it easier to compare what actually improved the horse.
+- **Generations per SIM9000 run**: how many generations SIM9000 searches.
+- **Gene-pool / race slots**: how many horses SIM9000 starts with, and how many race slots that represents.
+- **SIM work batches per UI update**: how much SIM work happens between screen refreshes. Higher can finish sooner but may look frozen while it works.
+- **Elite parent / diversity percent**: how much of the better population survives into the next generation. Lower is greedier; higher keeps more variety.
+- **Earliest generation for result disk**: the first generation allowed to output a disk. Around `9` is a good starting point.
+- **Presets**: quick starting points. Normal search is safest; deeper searches are for experimenting.
 
-## Suggested Fast-Horse Settings
+Good starting values are `75-128` generations and `152-256` horses. Raise values gradually.
 
-These are practical starting points, not guaranteed best values.
+### Main Buttons
 
-**Parameters**
+- **Apply to running game** changes live SIM9000 values while CaseOh Horsey is open.
+- **Save for next launch** writes settings into the CaseOh dimension files on disk. Close CaseOh Horsey before pressing it, then launch again.
+- **Load baseline** returns to the recommended CaseOh defaults.
+- **Restore normal search** returns SIM9000 search values toward the original game behavior.
 
-- Minimum accepted finish frames: `0`
-- Display precision: `T:%.3f`
-- Valid-result score max: stock/original
-- Stall/no-progress cull frames: stock or slightly lower if results get strange
+## DNA Workflow
 
-**Intensity**
+Direct DNA and Gene Lab are beta tools. They are useful, but they are for careful experimenting.
 
-- Generations: `75-128`
-- Horses/race slots: `152-256` horses, or `38-64` race slots
-- SIM work batches/update: higher for speed, lower if the window feels frozen
-- Elite parent percent: `20-30%`
-- Earliest disk generation: around `9` unless you are intentionally testing unstable early DNA
+To save DNA outside the game:
+
+1. Open the horse DNA in CRISPR.
+2. Select the DNA text and copy it.
+3. Paste it into Notepad.
+4. Save it as a `.txt` file with a name you will recognize.
+
+To use saved DNA again, copy the DNA text from Notepad and paste it back into CRISPR or the Direct DNA tab. Keep the DNA as plain text and avoid adding notes inside the DNA block.
 
 ## Caseoh Arena
 
-The copied branch also includes the arena work from the multiplayer project:
+The CaseOh parallel dimension includes:
 
-- the old Abandoned Track is renamed **The Caseoh Arena**;
-- the arena can run a **40-furlong** race;
-- race music is extended for longer arena tests;
-- the in-game timer starts from Horsey's real race-start sound and stops on the first finish sound;
-- reset holds the last race result until you leave the arena or start another race;
-- the old **Bio-Hacker** world-map label is renamed **CaseohHaus**.
+- **The Caseoh Arena** replacing the old Abandoned Track label;
+- a 40-furlong arena race option;
+- an in-game race timer triggered from Horsey's race sounds;
+- longer arena race music;
+- **CaseohHaus** replacing the old Bio-Hacker map label.
 
-These changes are branch-only. The bundled native timer runtime is copied into the mod branch and guarded so it does not run against the normal Steam install.
+The timer loads when Horsey is started through Start Here, the desktop shortcut, or `02_PLAY_CASEOH_HORSEY.bat`. Opening the copied dimension's `Horsey.exe` directly may skip the timer.
 
 ## Folder Layout
 
-The release zip is intentionally simple at the top level:
+The release zip opens to:
 
 ```text
 README.md
 00_START_HERE_CaseOh90000.bat
 01_LAUNCH_PANEL_CaseOh90000.bat
+02_PLAY_CASEOH_HORSEY.bat
 HorseyGameCaseOhMod/
 ```
 
-Useful files inside `HorseyGameCaseOhMod/`:
-
-```text
-00_START_HERE_CaseOh90000.bat
-CaseOh90000_RUN_FROM_LATEST_SAVE.bat
-CaseOh90000_OPEN_PANEL.bat
-CaseOh90000_OPEN_BRANCH_FOLDER.bat
-CaseOh90000_CREATE_DESKTOP_SHORTCUT.bat
-CaseOh90000_RESTORE_BRANCH_ORIGINAL.bat
-CaseOh90000_ENABLE_CASEOH_MODE.bat
-CaseOh90000_DISABLE_CASEOH_MODE.bat
-```
+Everything else lives inside the `HorseyGameCaseOhMod` app folder.
 
 ## Safety
 
-HorseyGameCaseOhMod is designed to work on a copied branch. The normal Steam install and normal save are not meant to be modified.
+HorseyGameCaseOhMod is designed to work inside the CaseOh parallel dimension. The normal Steam install is not meant to be modified.
 
-The panel hides full folder paths by default for stream privacy. First-time setup still asks for folders in a console window, so avoid running setup live on stream unless you are comfortable showing those paths.
-
-Public releases should never include copied game folders, `Horsey.exe`, saves, branch folders, local config files, logs, or game asset folders.
+Public releases should never include copied game folders, `Horsey.exe`, saves, CaseOh dimension folders, local config files, logs, or game asset folders.
 
 ## Mod Notice
 
-All mods are used at your own risk. HorseyGameCaseOhMod is intended to be as safe as possible by working through a copied branch, but there can never be guarantees. Back up anything important before experimenting.
+All mods are used at your own risk. HorseyGameCaseOhMod is intended to be as safe as possible by working through a separate CaseOh parallel dimension, but there can never be guarantees. Back up anything important before experimenting.

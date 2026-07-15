@@ -769,7 +769,7 @@ def apply_gene_stack(branch: Path, settings: Dict[str, Any]) -> Dict[str, Any]:
 
     if bool(settings.get("caseoh_mode", False)):
         report = {
-            "version": "HorseyGameCaseOhMod v2 SIM Gene Lab",
+            "version": "HorseyGameCaseOhMod 3.0 SIM Gene Lab",
             "enabled": False,
             "easter_egg_active": True,
             "changed_gene_count": len({c["gene"] for c in changed}),
@@ -777,7 +777,7 @@ def apply_gene_stack(branch: Path, settings: Dict[str, Any]) -> Dict[str, Any]:
         }
     else:
         report = {
-            "version": "HorseyGameCaseOhMod v2 SIM Gene Lab",
+            "version": "HorseyGameCaseOhMod 3.0 SIM Gene Lab",
             "enabled": bool(gl["gene_lab_enabled"]),
             "easter_egg_active": False,
             "species_profile": gl["species_profile"],

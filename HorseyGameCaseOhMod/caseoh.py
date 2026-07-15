@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Easter Egg support for the CaseOh90000 local mod branch.
+"""Easter Egg support for the CaseOh90000 parallel dimension.
 
 Branch-only and reversible. The public UI intentionally does not describe what
 this toggle does.

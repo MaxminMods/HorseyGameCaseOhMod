@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HorseyGameCaseOhMod v2 panel with community racing archetypes, exploding finisher preset, Direct DNA, and a hidden Easter egg.
+HorseyGameCaseOhMod 3.0 panel with community racing archetypes, exploding finisher preset, Direct DNA, and a hidden Easter egg.
 
 No third-party packages. It can patch a branch on disk and, on Windows, patch the
 currently running Horsey.exe process. The panel is not always-on-top by default and can dock beside Horsey.
@@ -38,7 +38,7 @@ from dna_designer import (
 )
 
 
-DEFAULT_BRANCH = str(Path.home() / "Desktop" / "projects" / "CaseOh90000_BRANCH")
+DEFAULT_BRANCH = str(Path(__file__).resolve().parent.parent / "CaseOh90000_BRANCH")
 
 
 def configured_default_branch() -> str:
@@ -91,7 +91,7 @@ SEARCH_U8 = ["elite_parent_percent", "min_generation_for_disk"]
 SEARCH_KEYS = SEARCH_I32 + SEARCH_U8
 ADVANCED_FLOAT_KEYS = ["finish_metric_threshold", "display_time_divisor", "result_score_scale", "invalid_score_sentinel"]
 DISPLAY_NUMERATOR_KEYS = ["generation_display_current"]
-LIVE_GUARDED_PATCH_LABELS = "frame budget, valid-score max, earliest disk generation, stall/cull values, display format, and startup search controls"
+LIVE_GUARDED_PATCH_LABELS = "active SIM race-slot/population size"
 VERIFY_PATCH_KEYS = ["max_sim_frames", "valid_result_max", "min_generation_for_disk"]
 VERIFY_PATCH_LABELS = {
     "max_sim_frames": "frame budget",
@@ -120,19 +120,16 @@ DESCRIPTIONS = {
     ),
     "max_sim_frames": (
         "The longest a test horse is allowed to run. Lower this if SIM9000 starts handing you very slow winners. "
-        "Raising it mostly lets slow horses finish; it does not make fast horses faster. Save to branch files for this startup-level value."
+        "Raising it mostly lets slow horses finish; it does not make fast horses faster. Save for next launch for this startup-level value."
     ),
     "valid_result_max": (
         "A broad internal cutoff for what SIM9000 is allowed to keep. The original value is usually best. "
-        "If this is too loose, slow or strange results can slip through. Save to branch files for this startup-level value."
+        "If this is too loose, slow or strange results can slip through. Save for next launch for this startup-level value."
     ),
     "display_precision": (
         "How many decimals the T readout shows. Three decimals makes close results easier to compare."
     ),
     "caseoh_mode": "Easter Egg.",
-    "enable_search_controls": (
-        "Lets you experiment with SIM9000's search loop. Leave this off for the proven baseline behavior."
-    ),
     "initial_generation_limit": (
         "How many generations SIM9000 runs during its internal search. More is not always better, so treat this as experimental."
     ),
@@ -148,7 +145,7 @@ DESCRIPTIONS = {
         "How much of the better population gets to parent the next generation. Lower is greedier; higher keeps more variety."
     ),
     "min_generation_for_disk": (
-        "The earliest generation that can produce a result disk. Setting this too low can output weak DNA before the search improves. Save to branch files for this startup-level value."
+        "The earliest generation that can produce a result disk. Setting this too low can output weak DNA before the search improves. Save for next launch for this startup-level value."
     ),
     "streamer_privacy": (
         "Hides full folder paths in this window so screen sharing does not reveal your Windows username or project folders."
@@ -298,7 +295,7 @@ def find_horsey_process(preferred_exe: Path | None = None) -> Tuple[int, int, st
     finally:
         CloseHandle(snap)
     if not candidates:
-        raise RuntimeError("No running Horsey.exe process found. Start the mod branch first.")
+        raise RuntimeError("No running Horsey.exe process found. Start the CaseOh parallel dimension first.")
     fallback: Tuple[int, int, str] | None = None
     preferred = Path(preferred_exe) if preferred_exe else None
     for pid in candidates:
@@ -505,12 +502,8 @@ def _live_sim_target_values(
     previous_settings: Dict[str, Any] | None = None,
 ) -> Tuple[int, int, int, int, List[Tuple[int, int]]]:
     s = normalize_settings(profile, settings)
-    if s.get("enable_search_controls"):
-        target_generation_limit = int(s["initial_generation_limit"])
-        target_genepool_size = int(s["initial_genepool_size"])
-    else:
-        target_generation_limit = int(original(profile, "initial_generation_limit", 16))
-        target_genepool_size = int(original(profile, "initial_genepool_size", 40))
+    target_generation_limit = int(s["initial_generation_limit"])
+    target_genepool_size = int(s["initial_genepool_size"])
     original_generation_limit = int(original(profile, "initial_generation_limit", 16))
     original_genepool_size = int(original(profile, "initial_genepool_size", 40))
     extra_pairs: List[Tuple[int, int]] = []
@@ -519,8 +512,7 @@ def _live_sim_target_values(
     extra_pairs.append((base_generation_limit, base_genepool_size))
     if previous_settings:
         previous = normalize_settings(profile, previous_settings)
-        if previous.get("enable_search_controls"):
-            extra_pairs.append((int(previous["initial_generation_limit"]), int(previous["initial_genepool_size"])))
+        extra_pairs.append((int(previous["initial_generation_limit"]), int(previous["initial_genepool_size"])))
     return target_generation_limit, target_genepool_size, original_generation_limit, original_genepool_size, extra_pairs
 
 
@@ -573,7 +565,7 @@ def _sim9000_appears_active(
         if int(values["race_current"]) > 0 or int(values["generation_current"]) > 0
     ]
     if not active:
-        return True, "SIM state found; guarded as active"
+        return False, "SIM state found and idle"
     values = active[0]
     return (
         True,
@@ -613,8 +605,11 @@ def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, 
             before = _read_sim_state_values(h, obj) or before
             if not _plausible_sim_state(before, target_generation_limit, target_genepool_size):
                 return "\nLive SIM state changed while applying, so this update was skipped safely. Press Apply again."
+            active = int(before["race_current"]) > 0 or int(before["generation_current"]) > 0
+            before_genepool_size = int(before["genepool_size"])
             write_process_i32(h, obj + SIM_GENERATION_LIMIT_OFFSET, target_generation_limit)
-            write_process_i32(h, obj + SIM_GENEPOOL_SIZE_OFFSET, target_genepool_size)
+            if not active or before_genepool_size == target_genepool_size:
+                write_process_i32(h, obj + SIM_GENEPOOL_SIZE_OFFSET, target_genepool_size)
             after = _read_sim_state_values(h, obj) or before
         finally:
             _resume_thread_handles(suspended_threads)
@@ -629,6 +624,11 @@ def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, 
         f"G total {before['generation_limit']} -> {after['generation_limit']}, "
         f"R slots {before_slots} -> {after_slots}."
     )
+    if active and before_genepool_size != target_genepool_size:
+        msg += (
+            f" Race slots were queued for the next SIM run ({before_slots} -> {max(1, target_genepool_size // 4)}) "
+            "because changing the active population size mid-sim can crash Horsey."
+        )
     if (
         int(before["generation_current"]) >= int(before["generation_limit"]) - 1
         and (
@@ -643,7 +643,7 @@ def patch_live_sim_state(pid: int, profile: Dict[str, Any], settings: Dict[str, 
 def read_profile(branch: Path) -> Dict[str, Any]:
     p = branch / "sim9000_mod_profile.json"
     if not p.exists():
-        raise FileNotFoundError(f"Missing {p}. Run 00_START_HERE_CaseOh90000.bat to create or refresh the mod branch first.")
+        raise FileNotFoundError(f"Missing {p}. Run 00_START_HERE_CaseOh90000.bat to create the CaseOh parallel dimension first.")
     profile = json.loads(p.read_text(encoding="utf-8"))
     required = {
         "generation_display_limit",
@@ -807,7 +807,7 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     s["valid_result_max"] = max(1, int(s["valid_result_max"]))
     s["display_precision"] = int(s["display_precision"])
     s["always_accept_early_finish"] = False
-    s["enable_search_controls"] = bool(s.get("enable_search_controls", True))
+    s["enable_search_controls"] = True
     s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
     s["streamer_privacy"] = bool(s.get("streamer_privacy", True))
     s["show_file_paths"] = bool(s.get("show_file_paths", False))
@@ -914,40 +914,24 @@ def patch_payloads(profile: Dict[str, Any], settings: Dict[str, Any]) -> List[Tu
     out.append(("early_finish_branch", (b"\xEB" + original_branch[1:2]) if s.get("always_accept_early_finish") else original_branch))
     out.append(("time_format", FMT_BY_PRECISION[int(s["display_precision"])]))
 
-    if s.get("enable_search_controls"):
-        search_values = {
-            "initial_generation_limit": s["initial_generation_limit"],
-            "initial_genepool_size": s["initial_genepool_size"],
-            "sim_work_per_ui_update": s["sim_work_per_ui_update"],
-            "elite_parent_percent": s["elite_parent_percent"],
-            "min_generation_for_disk": s["min_generation_for_disk"],
-        }
-    else:
-        search_values = {
-            "initial_generation_limit": int(original(profile, "initial_generation_limit", 16)),
-            "initial_genepool_size": int(original(profile, "initial_genepool_size", 40)),
-            "sim_work_per_ui_update": int(original(profile, "sim_work_per_ui_update", 240)),
-            "elite_parent_percent": int(original(profile, "elite_parent_percent", 25)),
-            "min_generation_for_disk": int(original(profile, "min_generation_for_disk", 9)),
-        }
-        s.update(search_values)
+    search_values = {
+        "initial_generation_limit": s["initial_generation_limit"],
+        "initial_genepool_size": s["initial_genepool_size"],
+        "sim_work_per_ui_update": s["sim_work_per_ui_update"],
+        "elite_parent_percent": s["elite_parent_percent"],
+        "min_generation_for_disk": s["min_generation_for_disk"],
+    }
 
     for key in SEARCH_I32:
         add_i32(key, search_values[key])
-    if s.get("enable_search_controls"):
-        add_i32("ram_generation_limit_upgraded", search_values["initial_generation_limit"])
-        add_i32("ram_generation_limit_base", search_values["initial_generation_limit"])
-        add_i32("ram_genepool_size_upgraded", search_values["initial_genepool_size"])
-        add_i32("ram_genepool_size_base", search_values["initial_genepool_size"])
-    else:
-        add_i32("ram_generation_limit_upgraded", int(original(profile, "ram_generation_limit_upgraded", original(profile, "initial_generation_limit", 16))))
-        add_i32("ram_generation_limit_base", int(original(profile, "ram_generation_limit_base", 8)))
-        add_i32("ram_genepool_size_upgraded", int(original(profile, "ram_genepool_size_upgraded", original(profile, "initial_genepool_size", 40))))
-        add_i32("ram_genepool_size_base", int(original(profile, "ram_genepool_size_base", 20)))
+    add_i32("ram_generation_limit_upgraded", search_values["initial_generation_limit"])
+    add_i32("ram_generation_limit_base", search_values["initial_generation_limit"])
+    add_i32("ram_genepool_size_upgraded", search_values["initial_genepool_size"])
+    add_i32("ram_genepool_size_base", search_values["initial_genepool_size"])
     for key in SEARCH_U8:
         add_u8(key, search_values[key])
-    add_generation_display(search_values["initial_generation_limit"], bool(s.get("enable_search_controls")))
-    add_race_display(search_values["initial_genepool_size"] // 4, bool(s.get("enable_search_controls")))
+    add_generation_display(search_values["initial_generation_limit"], True)
+    add_race_display(search_values["initial_genepool_size"] // 4, True)
     for key in DISPLAY_NUMERATOR_KEYS:
         if key in p:
             add_bytes(key, bytes.fromhex(str(p[key]["original"])))
@@ -969,9 +953,6 @@ def patch_exe_file(branch: Path, profile: Dict[str, Any], settings: Dict[str, An
         data[off:off + len(payload)] = payload
     exe.write_bytes(data)
     s = normalize_settings(profile, settings)
-    if not s.get("enable_search_controls"):
-        for key in SEARCH_KEYS:
-            s[key] = int(original(profile, key, s.get(key, 0)))
     apply_gene_stack(branch, s)
     apply_caseoh_art(branch)
     write_settings(branch, s)
@@ -1011,18 +992,17 @@ def patch_running_process(
     pid, base, path = find_horsey_process(preferred_exe)
     sim_active, sim_detail = _sim9000_appears_active(pid, profile, settings, previous_settings)
     msg = f"Found running Horsey.exe pid={pid}, base={base:#x}\n{path}"
+    for key, payload in patch_payloads(profile, settings):
+        if key not in profile["patches"]:
+            continue
+        addr = base + int(profile["patches"][key]["rva"])
+        write_process(pid, addr, payload)
+    msg += f"\nStartup-level SIM patch bytes updated in the running game ({sim_detail})."
     if sim_active:
         msg += (
-            f"\nSIM9000 is active ({sim_detail}). Skipped live rewriting {LIVE_GUARDED_PATCH_LABELS} "
-            "to avoid crashing the current SIM run. Use Save to branch files for those startup-level settings."
+            f"\nSIM9000 is active ({sim_detail}). Apply will update safe live totals now, but {LIVE_GUARDED_PATCH_LABELS} "
+            "changes wait for the next SIM run if the population size changed."
         )
-    else:
-        for key, payload in patch_payloads(profile, settings):
-            if key not in profile["patches"]:
-                continue
-            addr = base + int(profile["patches"][key]["rva"])
-            write_process(pid, addr, payload)
-        msg += f"\nStartup-level SIM patch bytes updated in the running game ({sim_detail})."
     msg += patch_live_sim_state(pid, profile, settings, previous_settings)
     return msg
 
@@ -1061,7 +1041,7 @@ class OverlayApp(tk.Tk):
         self.scrollables: List[Scrollable] = []
         self._live_patch_running = False
         self.live_apply_button: tk.Button | None = None
-        self.title("HorseyGameCaseOhMod v2")
+        self.title("HorseyGameCaseOhMod 3.0")
         icon_path = Path(__file__).resolve().parent / "assets" / "HorseyGameCaseOhMod.ico"
         if icon_path.exists():
             try:
@@ -1114,7 +1094,7 @@ class OverlayApp(tk.Tk):
         header.pack(fill="x", pady=(0, 8))
         title_area = ttk.Frame(header)
         title_area.pack(side="left", fill="x", expand=True)
-        ttk.Label(title_area, text="HorseyGameCaseOhMod v2", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_area, text="HorseyGameCaseOhMod 3.0", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             title_area,
             text="Direct DNA, SIM9000 tuning, and copied-branch tools for Horsey Game.",
@@ -1180,7 +1160,7 @@ class OverlayApp(tk.Tk):
         bar.pack(fill="x", pady=(0, 8))
         actions = [
             ("Apply to running game", self.patch_live, "#16784f", "#f0fff6"),
-            ("Save to branch files", self.patch_disk, "#b76512", "#fff7ec"),
+            ("Save for next launch", self.patch_disk, "#b76512", "#fff7ec"),
             ("Load baseline", self.preset_baseline, "#2f72d6", "#f1f6ff"),
             ("Restore normal search", self.preset_stock_search, "#6f747c", "#f6f7f8"),
         ]
@@ -1442,7 +1422,7 @@ class OverlayApp(tk.Tk):
     def dock_next_to_horsey(self) -> None:
         result = find_horsey_window(self.horsey_exe)
         if result is None:
-            self.status.set("Horsey window not found yet. Start the mod branch, then press 'Fit'.")
+            self.status.set("Horsey window not found yet. Start the CaseOh parallel dimension, then press 'Fit'.")
             return
         _hwnd, _rect = result
         self.update_idletasks()
@@ -1606,7 +1586,7 @@ class OverlayApp(tk.Tk):
         status.pack(fill="x", padx=4, pady=5)
         ttk.Button(status, text="Show branch Gene Lab report", command=self.show_gene_lab_report).pack(side="left", padx=3)
         ttk.Button(status, text="Restore stock genes.xml", command=self.restore_gene_lab_now).pack(side="left", padx=3)
-        ttk.Label(status, text="Saving to branch files writes data/genes.xml. Restart Horsey for these changes to load.", wraplength=680).pack(anchor="w", pady=(8, 0))
+        ttk.Label(status, text="Save for next launch writes branch files like genes.xml. Close and restart CaseOh Horsey for these changes to load.", wraplength=680).pack(anchor="w", pady=(8, 0))
 
 
     def _build_dna_editor(self, root: tk.Widget) -> None:
@@ -1986,13 +1966,6 @@ class OverlayApp(tk.Tk):
             messagebox.showerror("Exploding seed DNA", str(e))
 
     def _build_search(self, root: tk.Widget) -> None:
-        self.vars["enable_search_controls"] = tk.BooleanVar(value=bool(self.settings.get("enable_search_controls", True)))
-        box = ttk.LabelFrame(root, text="Experimental master switch", padding=8)
-        box.pack(fill="x", padx=4, pady=6)
-        ttk.Checkbutton(box, text="Enable experimental search-control patching", variable=self.vars["enable_search_controls"]).pack(anchor="w")
-        self._add_desc(box, "enable_search_controls")
-        ttk.Label(box, text="When this is OFF, patching restores SIM9000's normal search values. This is the recommended baseline.", wraplength=680, foreground="#333333").pack(anchor="w", pady=(4, 0))
-
         columns = ttk.Frame(root)
         columns.pack(fill="x")
         left = ttk.Frame(columns)
@@ -2048,7 +2021,7 @@ class OverlayApp(tk.Tk):
             if key in s:
                 s[key] = float(s[key])
         s["always_accept_early_finish"] = False
-        s["enable_search_controls"] = bool(s.get("enable_search_controls"))
+        s["enable_search_controls"] = True
         s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
         s["gene_lab_enabled"] = bool(s.get("gene_lab_enabled", False))
         s["exploding_mode"] = bool(s.get("exploding_mode", False))
@@ -2057,7 +2030,7 @@ class OverlayApp(tk.Tk):
             s["species_profile"] = "Freak / mixed"
             s["racing_preset"] = "Exploding finisher"
         if s.get("caseoh_mode"):
-            # Easter egg mode is deliberately not stackable with the Gene Lab or experimental search controls.
+            # Easter egg mode is deliberately not stackable with the Gene Lab.
             s = normalize_settings(self.profile, s)
         if s.get("species_profile") not in SPECIES_PROFILES:
             s["species_profile"] = "Any / no species lock"
@@ -2088,7 +2061,7 @@ class OverlayApp(tk.Tk):
         s["dna_output_locks"] = normalize_dna_locks(getattr(self, "dna_output_locks", {}))
         if hasattr(self, "tab_order"):
             s["tab_order"] = self._current_tab_order()
-        # Advanced float controls are intentionally hidden in HorseyGameCaseOhMod v2; keep those values pinned to scanned originals.
+        # Advanced float controls stay hidden; keep those values pinned to scanned originals.
         for key in ADVANCED_FLOAT_KEYS:
             if key in self.profile.get("patches", {}):
                 s[key] = float(self.profile["patches"][key]["original"])
@@ -2131,7 +2104,7 @@ class OverlayApp(tk.Tk):
             self.vars["racing_preset"].set(racing)
         for var in getattr(self, "helix_vars", {}).values():
             var.set("Unchanged")
-        self.status.set(f"Loaded Gene Lab preset: {species} + {racing}. Save to branch files, then restart Horsey.")
+        self.status.set(f"Loaded Gene Lab preset: {species} + {racing}. Save for next launch, then restart Horsey.")
 
     def clear_gene_lab(self) -> None:
         if "gene_lab_enabled" in self.vars:
@@ -2142,12 +2115,12 @@ class OverlayApp(tk.Tk):
             self.vars["racing_preset"].set("None / normal genes")
         for var in getattr(self, "helix_vars", {}).values():
             var.set("Unchanged")
-        self.status.set("Gene Lab cleared. Save to branch files to restore normal genes.xml unless the Easter Egg is enabled.")
+        self.status.set("Gene Lab cleared. Save for next launch to restore normal genes.xml unless the Easter Egg is enabled.")
 
     def show_gene_lab_report(self) -> None:
         report = self.branch / "sim_gene_lab_report.json"
         if not report.exists():
-            messagebox.showinfo("Gene Lab report", "No Gene Lab report exists yet. Save to branch files first.")
+            messagebox.showinfo("Gene Lab report", "No Gene Lab report exists yet. Save for next launch first.")
             return
         text = report.read_text(encoding="utf-8", errors="replace")[:6000]
         messagebox.showinfo("Gene Lab report", text)
@@ -2163,7 +2136,6 @@ class OverlayApp(tk.Tk):
     def preset_baseline(self) -> None:
         self.vars["min_finish_frames"].set(0)
         self.vars["display_precision"].set(3)
-        self.vars["enable_search_controls"].set(False)
         if "caseoh_mode" in self.vars:
             self.vars["caseoh_mode"].set(False)
         for key in ["no_progress_frames", "max_sim_frames", "valid_result_max"]:
@@ -2173,7 +2145,7 @@ class OverlayApp(tk.Tk):
             if key in self.vars and key in self.profile.get("patches", {}):
                 self.vars[key].set(float(self.profile["patches"][key]["original"]))
         self._update_labels()
-        self.status.set("Loaded baseline: uncapped 5.0 barrier, 3-decimal display, normal search/scoring. Apply live or save to branch files.")
+        self.status.set("Loaded baseline: uncapped 5.0 barrier, 3-decimal display, and stock Intensity values. Apply live between SIM runs or save for next launch.")
 
     def preset_reject_slow(self) -> None:
         self.preset_baseline()
@@ -2183,13 +2155,11 @@ class OverlayApp(tk.Tk):
         self.status.set("Loaded slow-winner filter: normal search, but stricter stall/max-time limits. Use only if you see huge T winners.")
 
     def preset_stock_search(self) -> None:
-        self.vars["enable_search_controls"].set(False)
         self._set_original_search()
         self._update_labels()
-        self.status.set("Experimental search controls disabled. Patching will restore stock/original search bytes.")
+        self.status.set("Loaded stock/original Intensity values. Apply live between SIM runs or save for next launch.")
 
     def preset_faster_ui(self) -> None:
-        self.vars["enable_search_controls"].set(True)
         self._set_original_search()
         if "sim_work_per_ui_update" in self.vars:
             self.vars["sim_work_per_ui_update"].set(600)
@@ -2197,7 +2167,6 @@ class OverlayApp(tk.Tk):
         self.status.set("Faster UI-only preset loaded. It should mainly affect how fast the sim screen advances, not scoring. Use Apply to running game.")
 
     def preset_careful_deeper(self) -> None:
-        self.vars["enable_search_controls"].set(True)
         self.vars["initial_generation_limit"].set(32)
         self.vars["initial_genepool_size"].set(80)
         self.vars["sim_work_per_ui_update"].set(600)
@@ -2213,11 +2182,20 @@ class OverlayApp(tk.Tk):
             if is_exploding_requested(self.settings):
                 write_exploding_seed_files(self.branch)
                 copy_seed_to_clipboard()
-                self.status.set("Patched branch EXE on disk. Exploding seed DNA was written/copied. Restart the mod branch before testing." + verify_msg)
+                self.status.set("Saved next-launch branch files. Exploding seed DNA was written/copied. Restart the CaseOh dimension before testing." + verify_msg)
             else:
-                self.status.set("Patched branch EXE on disk. Restart the mod branch for disk changes to take effect." + verify_msg)
+                self.status.set("Saved next-launch branch files. Restart the CaseOh dimension for these changes to load." + verify_msg)
         except Exception as e:
-            messagebox.showerror("Patch failed", str(e))
+            if isinstance(e, PermissionError) or getattr(e, "winerror", None) in {5, 32}:
+                msg = (
+                    "Save for next launch rewrites files in the CaseOh parallel dimension. "
+                    "Close CaseOh Horsey first, press this button, then launch again.\n\n"
+                    "Use Apply to running game for changes while Horsey is open."
+                )
+                self.status.set("Close CaseOh Horsey before using Save for next launch. Use Apply to running game for live changes.")
+                messagebox.showerror("Close CaseOh Horsey first", msg)
+            else:
+                messagebox.showerror("Save failed", str(e))
 
     def patch_live(self) -> None:
         if self._live_patch_running:
@@ -2230,10 +2208,6 @@ class OverlayApp(tk.Tk):
             previous_settings = dict(self.settings)
             self.settings = self._collect()
             msg = patch_running_process(self.profile, self.settings, self.horsey_exe, previous_settings)
-            # Match file behavior: when experimental is disabled, store stock search values.
-            if not self.settings.get("enable_search_controls"):
-                for key in SEARCH_KEYS:
-                    self.settings[key] = int(original(self.profile, key, self.settings.get(key, 0)))
             apply_gene_stack(self.branch, self.settings)
             write_settings(self.branch, self.settings)
             if is_exploding_requested(self.settings):

@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-HorseyGameCaseOhMod v2 Mod Branch Tool
+HorseyGameCaseOhMod 3.0 Parallel Dimension Tool
 
 Creates and patches a COPY of Horsey Game. It never redistributes game files and
-keeps Horsey.exe.original in the mod branch for restore.
+keeps Horsey.exe.original in the CaseOh parallel dimension for restore.
 
-HorseyGameCaseOhMod v2 philosophy:
+HorseyGameCaseOhMod 3.0 philosophy:
 - Keep the proven effective behavior by default: remove the 5.0s barrier and improve
   displayed precision.
-- Start with the visible SIM9000 Intensity controls enabled so fresh branches apply
-  the selected generation/race-slot values right away.
-- If experimental search controls are disabled, CaseOh90000 writes those search bytes back
-  to stock/original values when patching, so it can recover from a too-aggressive
-  over-tuned branch.
+- Keep the visible SIM9000 Intensity controls always enabled so fresh branches apply
+  the selected generation/race-slot values without a separate master switch.
 - Add an optional branch-only Easter Egg toggle.
 """
 from __future__ import annotations
@@ -32,7 +29,7 @@ from caseoh_arena import prepare_caseoh_arena_branch, restore_caseoh_arena_branc
 
 STEAM_APPID = "3602570"
 DEFAULT_SOURCE = r"C:\Program Files (x86)\Steam\steamapps\common\Horsey Game"
-DEFAULT_BRANCH = str(Path.home() / "Desktop" / "projects" / "CaseOh90000_BRANCH")
+DEFAULT_BRANCH = str(Path(__file__).resolve().parent.parent / "CaseOh90000_BRANCH")
 
 # Byte signatures are version-specific to the uploaded/current build, but scanned
 # rather than applied at blind offsets.
@@ -422,7 +419,7 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
         )
 
     return {
-        "tool_version": "HorseyGameCaseOhMod-v2",
+        "tool_version": "HorseyGameCaseOhMod-3.0",
         "exe": str(exe),
         "image_base": image_base,
         "sections": [s.__dict__ for s in sections],
@@ -430,7 +427,7 @@ def scan_exe(exe: Path) -> Dict[str, Any]:
         "warnings": warnings,
         "notes": [
             "Confirmed barrier: min_finish_frames=300; 300/60 = 5.0 seconds.",
-            "HorseyGameCaseOhMod v2 defaults: min_finish_frames=0, T precision=3, and Intensity controls enabled.",
+            "HorseyGameCaseOhMod 3.0 defaults: min_finish_frames=0, T precision=3, and Intensity controls enabled.",
             "Disabling Intensity controls restores the stock SIM9000 search values.",
         ],
     }
@@ -476,7 +473,7 @@ def original(profile: Dict[str, Any], key: str, fallback: Any) -> Any:
 
 def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        # v2 default: remove the barrier, improve precision, and enable visible Intensity settings.
+        # 3.0 default: remove the barrier, improve precision, and enable visible Intensity settings.
         "min_finish_frames": 0,
         "display_precision": 3,
         "always_accept_early_finish": False,
@@ -485,8 +482,8 @@ def default_settings(profile: Dict[str, Any]) -> Dict[str, Any]:
         "no_progress_frames": int(original(profile, "no_progress_frames", 300)),
         "max_sim_frames": int(original(profile, "max_sim_frames", 10800)),
         "valid_result_max": int(original(profile, "valid_result_max", 10000)),
-        # Experimental search controls start enabled in v2 so fresh installs load
-        # the visible SIM9000 generation/race-slot settings right away.
+        # Intensity controls are always enabled in 3.0 so the visible SIM9000
+        # generation/race-slot settings apply without a confusing master switch.
         "enable_search_controls": True,
         "initial_generation_limit": int(original(profile, "initial_generation_limit", 16)),
         "initial_genepool_size": int(original(profile, "initial_genepool_size", 40)),
@@ -573,7 +570,7 @@ def normalize_settings(profile: Dict[str, Any], settings: Dict[str, Any]) -> Dic
     if s["display_precision"] not in FMT_BY_PRECISION:
         raise ValueError("display_precision must be 1, 2, or 3")
     s["always_accept_early_finish"] = bool(s.get("always_accept_early_finish", False))
-    s["enable_search_controls"] = bool(s.get("enable_search_controls", True))
+    s["enable_search_controls"] = True
     s["caseoh_mode"] = bool(s.get("caseoh_mode", False))
     s["exploding_mode"] = bool(s.get("exploding_mode", False))
     defaults_gl = default_gene_lab_settings()
@@ -655,42 +652,26 @@ def apply_values_to_exe(exe: Path, profile: Dict[str, Any], settings: Dict[str, 
 
     write_bytes("time_format", FMT_BY_PRECISION[int(s["display_precision"])])
 
-    # Experimental search controls. If disabled, deliberately restore originals.
-    if s.get("enable_search_controls", False):
-        search_values = {
-            "initial_generation_limit": s["initial_generation_limit"],
-            "initial_genepool_size": s["initial_genepool_size"],
-            "sim_work_per_ui_update": s["sim_work_per_ui_update"],
-            "elite_parent_percent": s["elite_parent_percent"],
-            "min_generation_for_disk": s["min_generation_for_disk"],
-        }
-    else:
-        search_values = {
-            "initial_generation_limit": int(original(profile, "initial_generation_limit", 16)),
-            "initial_genepool_size": int(original(profile, "initial_genepool_size", 40)),
-            "sim_work_per_ui_update": int(original(profile, "sim_work_per_ui_update", 240)),
-            "elite_parent_percent": int(original(profile, "elite_parent_percent", 25)),
-            "min_generation_for_disk": int(original(profile, "min_generation_for_disk", 9)),
-        }
-        # Mirror what was actually written in settings so users can see stock values.
-        s.update(search_values)
+    # Intensity controls are always active. Stock behavior is still available by
+    # setting the visible Intensity values back to the original numbers.
+    search_values = {
+        "initial_generation_limit": s["initial_generation_limit"],
+        "initial_genepool_size": s["initial_genepool_size"],
+        "sim_work_per_ui_update": s["sim_work_per_ui_update"],
+        "elite_parent_percent": s["elite_parent_percent"],
+        "min_generation_for_disk": s["min_generation_for_disk"],
+    }
 
     for key in SEARCH_KEYS_I32:
         write_i32(key, int(search_values[key]))
-    if s.get("enable_search_controls", False):
-        write_i32("ram_generation_limit_upgraded", int(search_values["initial_generation_limit"]))
-        write_i32("ram_generation_limit_base", int(search_values["initial_generation_limit"]))
-        write_i32("ram_genepool_size_upgraded", int(search_values["initial_genepool_size"]))
-        write_i32("ram_genepool_size_base", int(search_values["initial_genepool_size"]))
-    else:
-        write_i32("ram_generation_limit_upgraded", int(original(profile, "ram_generation_limit_upgraded", original(profile, "initial_generation_limit", 16))))
-        write_i32("ram_generation_limit_base", int(original(profile, "ram_generation_limit_base", 8)))
-        write_i32("ram_genepool_size_upgraded", int(original(profile, "ram_genepool_size_upgraded", original(profile, "initial_genepool_size", 40))))
-        write_i32("ram_genepool_size_base", int(original(profile, "ram_genepool_size_base", 20)))
+    write_i32("ram_generation_limit_upgraded", int(search_values["initial_generation_limit"]))
+    write_i32("ram_generation_limit_base", int(search_values["initial_generation_limit"]))
+    write_i32("ram_genepool_size_upgraded", int(search_values["initial_genepool_size"]))
+    write_i32("ram_genepool_size_base", int(search_values["initial_genepool_size"]))
     for key in SEARCH_KEYS_U8:
         write_u8(key, int(search_values[key]))
-    write_generation_display(int(search_values["initial_generation_limit"]), bool(s.get("enable_search_controls", False)))
-    write_race_display(int(search_values["initial_genepool_size"]) // 4, bool(s.get("enable_search_controls", False)))
+    write_generation_display(int(search_values["initial_generation_limit"]), True)
+    write_race_display(int(search_values["initial_genepool_size"]) // 4, True)
     for key in DISPLAY_NUMERATOR_KEYS:
         if has(key):
             write_bytes(key, bytes.fromhex(str(patches[key]["original"])))
@@ -737,10 +718,10 @@ def cmd_make_branch(args: argparse.Namespace) -> None:
         print(f"warning: could not prepare Caseoh arena / in-game timer: {e}")
     write_settings(branch, settings)
     print(f"branch={branch}")
-    print("created CaseOh90000 mod branch and wrote steam_appid.txt")
+    print("created CaseOh90000 parallel dimension and wrote steam_appid.txt")
     print("copied the source game folder, including the current save folder, into the branch")
     if not args.no_patch:
-        print("applied HorseyGameCaseOhMod v2 defaults: min_finish_frames=0, display T:%.3f, Intensity controls enabled")
+        print("applied HorseyGameCaseOhMod 3.0 defaults: min_finish_frames=0, display T:%.3f, Intensity controls enabled")
     else:
         print("no patch applied yet")
 
@@ -771,18 +752,13 @@ def cmd_apply(args: argparse.Namespace) -> None:
             settings[key] = val
 
     search_keys = ["initial_generation_limit", "initial_genepool_size", "sim_work_per_ui_update", "elite_parent_percent", "min_generation_for_disk"]
-    search_arg_used = False
     for key in search_keys:
         val = getattr(args, key, None)
         if val is not None:
             settings[key] = val
-            search_arg_used = True
-    if args.enable_search_controls or search_arg_used:
-        settings["enable_search_controls"] = True
-    if args.disable_search_controls:
-        settings["enable_search_controls"] = False
+    settings["enable_search_controls"] = True
 
-    # v1.4 keeps the stable baseline branch behavior fixed; the old core toggle is not exposed.
+    # Keep the stable baseline branch behavior fixed; the old core toggle is not exposed.
     settings["always_accept_early_finish"] = False
 
     if getattr(args, "caseoh_mode", False):
@@ -861,7 +837,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def build_argparser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="HorseyGameCaseOhMod v2 local mod branch tool")
+    ap = argparse.ArgumentParser(description="HorseyGameCaseOhMod 3.0 local parallel dimension tool")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scan", help="scan an executable and print/write patch points")
@@ -869,14 +845,14 @@ def build_argparser() -> argparse.ArgumentParser:
     s.add_argument("--out")
     s.set_defaults(func=cmd_scan)
 
-    s = sub.add_parser("make-branch", help="copy the game to a CaseOh90000 local mod branch and apply the baseline uncap")
+    s = sub.add_parser("make-branch", help="copy the game to a CaseOh90000 parallel dimension and apply the baseline uncap")
     s.add_argument("--source", default=DEFAULT_SOURCE)
     s.add_argument("--branch", default=DEFAULT_BRANCH)
     s.add_argument("--overwrite", action="store_true")
     s.add_argument("--no-patch", action="store_true")
     s.set_defaults(func=cmd_make_branch)
 
-    s = sub.add_parser("apply", help="apply settings to a mod branch executable")
+    s = sub.add_parser("apply", help="apply settings to the CaseOh dimension executable")
     s.add_argument("--branch", default=DEFAULT_BRANCH)
     s.add_argument("--min-finish-frames", type=int, default=None)
     s.add_argument("--no-progress-frames", type=int, default=None)
@@ -907,7 +883,7 @@ def build_argparser() -> argparse.ArgumentParser:
     s.add_argument("--branch", default=DEFAULT_BRANCH)
     s.set_defaults(func=cmd_restore)
 
-    s = sub.add_parser("run", help="launch the mod branch Horsey.exe")
+    s = sub.add_parser("run", help="launch the CaseOh dimension Horsey.exe")
     s.add_argument("--branch", default=DEFAULT_BRANCH)
     s.set_defaults(func=cmd_run)
 

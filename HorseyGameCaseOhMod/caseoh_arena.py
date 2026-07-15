@@ -57,7 +57,7 @@ SELECTOR_MODULO4_SIG = bytes.fromhex(
     "8B 83 5C 02 00 00 FF C0 25 03 00 00 80 7D 07 FF C8 83 C8 FC FF C0"
 )
 SELECTOR_MODULO5_PATCH = bytes.fromhex(
-    "8B 83 5C 02 00 00 FF C0 33 D2 B9 05 00 00 00 F7 F1 8B C2 90 90 90"
+    "8B 83 5C 02 00 00 FF C0 33 D2 B9 05 00 00 00 f7 F1 8B C2 90 90 90"
 )
 DISTANCE_LEA_ORIGINAL = bytes.fromhex("48 8D 0D 16 58 2D 00")
 STATE4_ASSIGNMENT = bytes.fromhex("48 C7 83 50 02 00 00 04 00 00 00")
@@ -699,7 +699,7 @@ def install_native_runtime(branch: Path) -> Dict[str, Any]:
     status = copy_file_if_changed(src, branch / NATIVE_DLL_NAME)
     write_text_if_changed(
         branch / BRANCH_MARKER,
-        "HorseyGameArena copied branch marker.\nCreated by HorseyGameCaseOhMod v2.\n",
+        "HorseyGameArena copied branch marker.\nCreated by HorseyGameCaseOhMod 3.0.\n",
         encoding="ascii",
     )
     write_text_if_changed(branch / "steam_appid.txt", STEAM_APPID + "\n", encoding="ascii")

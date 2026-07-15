@@ -6,7 +6,11 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-echo Starting HorseyGameCaseOhMod v2 easy setup...
+echo Starting HorseyGameCaseOhMod 3.0 easy setup...
 echo.
-%CASEOH_PY% setup_wizard.py setup --easy
+if exist "%~dp0CaseOh90000_paths.json" (
+  %CASEOH_PY% setup_wizard.py run --panel
+) else (
+  %CASEOH_PY% setup_wizard.py setup --easy
+)
 if errorlevel 1 pause

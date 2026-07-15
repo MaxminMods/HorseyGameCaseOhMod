@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""First-run setup and safe launcher for HorseyGameCaseOhMod v2.
+"""First-run setup and safe launcher for HorseyGameCaseOhMod 3.0.
 
 The wizard stores user-selected paths in CaseOh90000_paths.json so the BAT files
 and the CaseOh90000 panel do not need hardcoded local paths.
@@ -19,8 +19,8 @@ from typing import Any, Dict, Optional
 CONFIG_NAME = "CaseOh90000_paths.json"
 STEAM_DEFAULT = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Horsey Game")
 APP_ICON_REL = Path("assets") / "HorseyGameCaseOhMod.ico"
-SHORTCUT_NAME = "HorseyGameCaseOhMod v2.lnk"
-OLD_SHORTCUT_NAME = "CaseOh90000 - Latest Save.lnk"
+SHORTCUT_NAME = "HorseyGameCaseOhMod 3.0.lnk"
+OLD_SHORTCUT_NAMES = ("HorseyGameCaseOhMod v2.lnk", "CaseOh90000 - Latest Save.lnk")
 
 
 def tool_dir() -> Path:
@@ -81,10 +81,10 @@ def validate_paths(source: Path, branch: Path) -> None:
     if not (source_r / "Horsey.exe").exists():
         raise FileNotFoundError(source_r / "Horsey.exe")
     if source_r == branch_r:
-        raise ValueError("The mod branch folder cannot be the same as the normal game folder.")
+        raise ValueError("The CaseOh dimension folder cannot be the same as the normal game folder.")
     try:
         branch_r.relative_to(source_r)
-        raise ValueError("Do not put the mod branch inside the normal Horsey Game folder. Pick a Desktop/projects folder instead.")
+        raise ValueError("Do not put the CaseOh dimension inside the normal Horsey Game folder. Pick a folder outside the game install instead.")
     except ValueError as e:
         if str(e).startswith("Do not put"):
             raise
@@ -211,18 +211,20 @@ def create_shortcut() -> bool:
         print("Desktop .lnk shortcut creation is Windows-only. The BAT file can still be run manually.")
         return False
 
-    target_bat = tool_dir() / "CaseOh90000_RUN_FROM_LATEST_SAVE.bat"
+    target_bat = tool_dir() / "CaseOh90000_PLAY_BRANCH.bat"
     icon_source = app_icon_path()
     icon = f"{icon_source},0" if icon_source.exists() else f"{target_bat},0"
-    description = "Start HorseyGameCaseOhMod v2 from the latest normal save and open the mod panel"
+    description = "Start the HorseyGameCaseOhMod 3.0 CaseOh dimension and open the mod panel"
 
     ps = f"""
 $ErrorActionPreference = 'Stop'
 $desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::Desktop)
 if ([string]::IsNullOrWhiteSpace($desktop)) {{ throw 'Could not resolve Desktop folder.' }}
 $link = Join-Path $desktop {powershell_single_quote(SHORTCUT_NAME)}
-$oldLink = Join-Path $desktop {powershell_single_quote(OLD_SHORTCUT_NAME)}
-if ((Test-Path $oldLink) -and ($oldLink -ne $link)) {{ Remove-Item -LiteralPath $oldLink -Force }}
+foreach ($oldName in @({", ".join(powershell_single_quote(name) for name in OLD_SHORTCUT_NAMES)})) {{
+    $oldLink = Join-Path $desktop $oldName
+    if ((Test-Path $oldLink) -and ($oldLink -ne $link)) {{ Remove-Item -LiteralPath $oldLink -Force }}
+}}
 $w = New-Object -ComObject WScript.Shell
 $s = $w.CreateShortcut($link)
 $s.TargetPath = $env:ComSpec
@@ -248,7 +250,7 @@ Write-Output $link
         # Fallback: create a visible Desktop BAT launcher in the real Desktop folder.
         desktop = windows_desktop_path()
         desktop.mkdir(parents=True, exist_ok=True)
-        fallback = desktop / "HorseyGameCaseOhMod v2.bat"
+        fallback = desktop / "HorseyGameCaseOhMod 3.0.bat"
         fallback.write_text(
             f'@echo off\r\ncd /d "{tool_dir()}"\r\ncall "{target_bat}"\r\n',
             encoding="utf-8",
@@ -257,8 +259,8 @@ Write-Output $link
         return False
 
 def cmd_setup(args: argparse.Namespace) -> int:
-    print("HorseyGameCaseOhMod v2 - setup wizard")
-    print("This does not patch your normal Steam install. It creates a separate mod branch.\n")
+    print("HorseyGameCaseOhMod 3.0 - setup wizard")
+    print("This does not patch your normal Steam install. It creates a separate CaseOh parallel dimension.\n")
 
     existing = load_config(required=False)
     guessed_source = Path(existing.get("source", "")) if existing.get("source") else (STEAM_DEFAULT if STEAM_DEFAULT.exists() else None)
@@ -279,7 +281,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
     validate_paths(source, branch)
 
     if easy:
-        streamer_privacy = bool(existing.get("streamer_privacy", True))
+        streamer_privacy = True
     else:
         default_privacy = bool(existing.get("streamer_privacy", True))
         answer = input(f"Hide full folder paths in the panel for streaming? [{'Y/n' if default_privacy else 'y/N'}]\n> ").strip().lower()
@@ -309,7 +311,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         if easy:
             make_shortcut = True
         else:
-            answer = input("Create a desktop shortcut that refreshes from the latest normal save and starts the mod? [Y/n]\n> ").strip().lower()
+            answer = input("Create a desktop shortcut that starts the CaseOh parallel dimension? [Y/n]\n> ").strip().lower()
             make_shortcut = answer not in {"n", "no"}
     else:
         make_shortcut = args.make_shortcut
@@ -331,7 +333,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         if easy:
             do_run = True
         else:
-            answer = input("Build/rebuild the mod branch from your latest normal save and run it now? [Y/n]\n> ").strip().lower()
+            answer = input("Build/rebuild the CaseOh parallel dimension from your latest normal save and run it now? [Y/n]\n> ").strip().lower()
             do_run = answer not in {"n", "no"}
     else:
         do_run = args.run
@@ -373,8 +375,8 @@ def wants_panel(args: argparse.Namespace) -> bool:
 
 
 def cmd_refresh_run(args: argparse.Namespace) -> int:
-    print("Rebuilding the mod branch from the latest normal save, then launching it.")
-    print("Close normal Horsey first if you need the newest save. Close the mod branch before rebuilding it.\n")
+    print("Rebuilding the CaseOh parallel dimension from the latest normal save, then launching it.")
+    print("Close normal Horsey first if you need the newest save. Close CaseOh Horsey before rebuilding it.\n")
     rc = make_branch_from_config(overwrite=True)
     if rc != 0:
         return rc
@@ -387,7 +389,7 @@ def cmd_refresh_run(args: argparse.Namespace) -> int:
 
 
 def cmd_rebuild(args: argparse.Namespace) -> int:
-    print("Rebuilding the mod branch from the latest normal save.")
+    print("Rebuilding the CaseOh parallel dimension from the latest normal save.")
     return make_branch_from_config(overwrite=True)
 
 
@@ -445,10 +447,10 @@ def cmd_slow_filter(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="HorseyGameCaseOhMod v2 setup/config wizard")
+    p = argparse.ArgumentParser(description="HorseyGameCaseOhMod 3.0 setup/config wizard")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("setup", help="choose game and mod branch folders")
+    s = sub.add_parser("setup", help="choose game and CaseOh dimension folders")
     s.add_argument("--run", dest="run", action="store_true", default=None)
     s.add_argument("--no-run", dest="run", action="store_false")
     s.add_argument("--shortcut", dest="make_shortcut", action="store_true", default=None)
@@ -460,12 +462,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("show", help="show saved paths").set_defaults(func=cmd_show)
     sub.add_parser("scan", help="scan configured Horsey.exe and write patch profile").set_defaults(func=cmd_scan)
-    s = sub.add_parser("refresh-run", help="rebuild branch from latest save and launch it")
+    s = sub.add_parser("refresh-run", help="rebuild CaseOh dimension from latest save and launch it")
     s.add_argument("--panel", dest="open_panel", action="store_true", default=None)
     s.add_argument("--no-panel", dest="open_panel", action="store_false")
     s.set_defaults(func=cmd_refresh_run)
-    sub.add_parser("rebuild", help="rebuild branch from latest save but do not launch").set_defaults(func=cmd_rebuild)
-    s = sub.add_parser("run", help="launch existing mod branch")
+    sub.add_parser("rebuild", help="rebuild CaseOh dimension from latest save but do not launch").set_defaults(func=cmd_rebuild)
+    s = sub.add_parser("run", help="launch existing CaseOh dimension")
     s.add_argument("--panel", dest="open_panel", action="store_true", default=None)
     s.add_argument("--no-panel", dest="open_panel", action="store_false")
     s.set_defaults(func=cmd_run)

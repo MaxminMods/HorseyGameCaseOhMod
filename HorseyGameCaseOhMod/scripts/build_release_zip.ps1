@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "v2",
+    [string]$Version = "3.0",
     [string]$OutZip = ""
 )
 $ErrorActionPreference = "Stop"
@@ -21,7 +21,7 @@ $appDirName = "HorseyGameCaseOhMod"
 $appDir = Join-Path $temp $appDirName
 New-Item -ItemType Directory -Path $appDir | Out-Null
 
-$excludeDirs = @(".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env", "tests", "build", "dist", "Horsey Game", "save", "data", "sound")
+$excludeDirs = @(".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env", "tests", "build", "dist", "obj", "Horsey Game", "save", "data", "sound")
 $excludeFiles = @("*.pyc", "*.pyo", "*.zip", "*.dat", "*.prev", "*.bak", "*.log", "*.tmp", "settings.xml", "Horsey.exe", "steam_appid.txt", "CaseOh90000_paths.json", "caseoh90000_config.json", "scan_profile_from_configured_install.json", "scan_profile_from_your_install.json", "README.md")
 
 Get-ChildItem -Path $appSource -Force | ForEach-Object {
@@ -31,6 +31,13 @@ Get-ChildItem -Path $appSource -Force | ForEach-Object {
     foreach ($pat in $excludeFiles) { if ($_.Name -like $pat) { $skip = $true } }
     if ($skip) { return }
     Copy-Item $_.FullName -Destination $appDir -Recurse -Force
+}
+
+Get-ChildItem -LiteralPath $appDir -Recurse -Force | Where-Object {
+    ($_.PSIsContainer -and $excludeDirs -contains $_.Name) -or
+    (!$_.PSIsContainer -and ($_.Name -like "*.obj" -or $_.Name -like "*.rsp"))
+} | Sort-Object FullName -Descending | ForEach-Object {
+    Remove-Item -LiteralPath $_.FullName -Recurse -Force
 }
 
 $internalDocs = Join-Path $appDir "docs\codex"
@@ -46,8 +53,9 @@ if (Test-Path $internalDocs) {
 Copy-Item (Join-Path $repoRoot "README.md") -Destination (Join-Path $temp "README.md") -Force
 Copy-Item (Join-Path $repoRoot "00_START_HERE_CaseOh90000.bat") -Destination (Join-Path $temp "00_START_HERE_CaseOh90000.bat") -Force
 Copy-Item (Join-Path $repoRoot "01_LAUNCH_PANEL_CaseOh90000.bat") -Destination (Join-Path $temp "01_LAUNCH_PANEL_CaseOh90000.bat") -Force
+Copy-Item (Join-Path $repoRoot "02_PLAY_CASEOH_HORSEY.bat") -Destination (Join-Path $temp "02_PLAY_CASEOH_HORSEY.bat") -Force
 
 if (Test-Path $OutZip) { Remove-Item $OutZip -Force }
 Compress-Archive -Path (Join-Path $temp "*") -DestinationPath $OutZip -Force
 Write-Host "Built release zip: $OutZip"
-Write-Host "Zip root contains README.md, 00_START_HERE_CaseOh90000.bat, and 01_LAUNCH_PANEL_CaseOh90000.bat. App files are inside $appDirName/."
+Write-Host "Zip root contains README.md, Start Here, Launch Panel, Play CaseOh Horsey, and one app folder."

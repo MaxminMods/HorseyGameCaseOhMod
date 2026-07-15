@@ -34,6 +34,7 @@ build/
 dist/
 *.spec
 *.zip
+HorseyGameCaseOhMod/native-src/obj/
 
 # OS/editor files
 .DS_Store
